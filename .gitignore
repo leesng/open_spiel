@@ -37,13 +37,13 @@ open_spiel/cmake-build-debug/
 Package.resolved
 
 # External git modules
-open_spiel/abseil-cpp/
+#open_spiel/abseil-cpp/
 open_spiel/eigen/libeigen/
-open_spiel/libnop/libnop/
+#open_spiel/libnop/libnop/
 open_spiel/games/bridge/double_dummy_solver/
 open_spiel/games/hanabi/hanabi-learning-environment/
 open_spiel/games/universal_poker/double_dummy_solver/
-open_spiel/json/
+#open_spiel/json/
 /open_spiel/pybind11_abseil/
 open_spiel/pybind11_json/
 pybind11/

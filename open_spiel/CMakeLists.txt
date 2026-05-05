@@ -26,7 +26,7 @@ if(NOT WIN32)
   set(BoldWhite   "${Esc}[1;37m")
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -71,7 +71,7 @@ if(APPLE)
 elseif(WIN32)
   # Setup for MSVC 2022.
   if(MSVC)
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++17 /utf-8 /bigobj /DWIN32 /D_WINDOWS /GR /EHsc")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++23 /utf-8 /bigobj /DWIN32 /D_WINDOWS /GR /EHsc")
   endif()
 else()
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-everything")
@@ -113,11 +113,11 @@ openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_HANABI         OFF
   "Build against the Hanabi game.")
 openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_JULIA          OFF
   "Build binary for Julia.")
-openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_LIBNOP         OFF
+openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_LIBNOP         ON
   "Build with support for libnop.")
-openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_LIBTORCH       OFF
+openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_LIBTORCH       ON
   "Build with support for libtorch.")
-openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_PYTHON         ON
+openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_PYTHON         OFF
   "Build binary for Python.")
 openspiel_optional_dependency(OPEN_SPIEL_BUILD_WITH_XINXIN         OFF
   "Build against xinxin Hearts program.")
@@ -226,7 +226,7 @@ set (OPEN_SPIEL_OBJECTS
   $<TARGET_OBJECTS:bots>
   $<TARGET_OBJECTS:games>
   $<TARGET_OBJECTS:game_transforms>
-  $<TARGET_OBJECTS:bridge_double_dummy_solver>
+  #$<TARGET_OBJECTS:bridge_double_dummy_solver>
   $<TARGET_OBJECTS:algorithms>
   $<TARGET_OBJECTS:evaluation>
   $<TARGET_OBJECTS:utils>
@@ -248,13 +248,13 @@ if (OPEN_SPIEL_BUILD_WITH_ROSHAMBO)
   set(OPEN_SPIEL_OBJECTS ${OPEN_SPIEL_OBJECTS} $<TARGET_OBJECTS:roshambo>)
 endif()
 if (OPEN_SPIEL_BUILD_WITH_LIBNOP)
-  include_directories(libnop/libnop/include)
-  add_subdirectory(libnop)
+  include_directories(libnop/include)
+  #add_subdirectory(libnop)
 endif()
 if (OPEN_SPIEL_BUILD_WITH_LIBTORCH)
   list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libtorch/libtorch")
   find_package(Torch REQUIRED)
-  add_subdirectory(libtorch)
+  #add_subdirectory(libtorch)
   include_directories(${TORCH_INCLUDE_DIRS})
   # Use following to link your_target_executable with torch libraries:
   # target_link_libraries(your_target_executable ${TORCH_LIBRARIES})

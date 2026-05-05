@@ -224,13 +224,13 @@ class EvalResults {
   // How many evals per difficulty.
   int EvalCount() {
     absl::MutexLock lock(m_);
-    return eval_num_ / results_.size();
+    return results_.empty() ? 0 : eval_num_ / results_.size();
   }
 
   // Which eval to do next: difficulty, player0.
   std::pair<int, bool> Next() {
     absl::MutexLock lock(m_);
-    int next = eval_num_ % (results_.size() * 2);
+    int next = results_.empty() ? 0 : eval_num_ % (results_.size() * 2);
     eval_num_ += 1;
     return {next / 2, next % 2};
   }

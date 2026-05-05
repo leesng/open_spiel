@@ -75,7 +75,7 @@ class DominanceType(enum.Enum):
   DOMINANCE_WEAK = 3
 
 
-class _Variable:
+class _Variable(object):
   """A variable in an LP."""
 
   def __init__(self, vid, lb=None, ub=None):
@@ -91,7 +91,7 @@ class _Variable:
     self.ub = ub
 
 
-class _Constraint:
+class _Constraint(object):
   """A constraint in an LP."""
 
   def __init__(self, cid, ctype):
@@ -107,7 +107,7 @@ class _Constraint:
     self.rhs = None
 
 
-class LinearProgram:
+class LinearProgram(object):
   """A object used to provide a user-friendly API for building LPs."""
 
   def __init__(self, objective):

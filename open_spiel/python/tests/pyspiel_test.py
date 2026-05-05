@@ -38,7 +38,6 @@ EXPECTED_MANDATORY_GAMES = frozenset([
     "amazons",
     "antichess",
     "backgammon",
-    "banqi",
     "bargaining",
     "battleship",
     "blackjack",

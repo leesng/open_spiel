@@ -16,6 +16,7 @@
 #define OPEN_SPIEL_GAMES_HEX_H_
 
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -29,15 +30,13 @@
 // Does not implement pie rule to balance the game
 //
 // Parameters:
-//       "board_size"       int     size of the board   (default = 11)
-//       "num_cols"         int     number of columns (optional)
-//       "num_rows"         int     number of rows (optional)
-//       "plain_obs_tensor" bool    whether to use plain observation tensor
-//                                  (default = false)
-//       "string_rep"       string  representation of the action and board
-//                                  strings ("standard" (default) | "explicit").
-//                                  See below for details.
-//       "swap"             bool    whether to enable swap rule (def. = false)
+//       "board_size"    int     size of the board   (default = 11)
+//       "num_cols"      int     number of columns (optional)
+//       "num_rows"      int     number of rows (optional)
+//       "string_rep"    string  representation of the action and board strings
+//                               ("standard" (default) | "explicit"). See below
+//                               for details.
+//       "swap"          bool    whether to enable swap rule (default = false)
 
 namespace open_spiel {
 namespace hex {
@@ -51,10 +50,6 @@ inline constexpr int kCellStates = 1 + 4 * kNumPlayers;
 inline constexpr int kMinValueCellState = -4;
 inline constexpr const char* kDefaultStringRep = "standard";
 inline constexpr bool kDefaultSwap = false;
-inline constexpr bool kDefaultPlainObsTensor = false;
-
-inline constexpr int kBlackPlayerId = 0;
-inline constexpr int kWhitePlayerId = 1;
 
 // State of a cell.
 // Describes if a cell is
@@ -118,7 +113,7 @@ class HexState : public State {
  private:
   CellState PlayerAndActionToState(Player player, Action move) const;
 
-  Player current_player_ = kBlackPlayerId;         // Black goes first
+  Player current_player_ = 0;                      // Player zero goes first
   double result_black_perspective_ = 0;            // 1 if Black (player 0) wins
   std::vector<int> AdjacentCells(int cell) const;  // Cells adjacent to cell
 
@@ -143,18 +138,17 @@ class HexGame : public Game {
   double MinUtility() const override { return -1; }
   absl::optional<double> UtilitySum() const override { return 0; }
   double MaxUtility() const override { return 1; }
-  std::vector<int> ObservationTensorShape() const override;
+  std::vector<int> ObservationTensorShape() const override {
+    return {kCellStates, num_cols_, num_rows_};
+  }
   int MaxGameLength() const override { return num_cols_ * num_rows_; }
   StringRep string_rep() const { return string_rep_; }
-  bool swap() const { return swap_; }
-  bool plain_obs_tensor() const { return plain_obs_tensor_; }
 
  private:
   const int num_cols_;
   const int num_rows_;
   const enum StringRep string_rep_;
   const bool swap_;
-  const bool plain_obs_tensor_;
 };
 
 CellState PlayerToState(Player player);

@@ -1,6 +1,6 @@
 set (BOT_SOURCES
-  gin_rummy/simple_gin_rummy_bot.cc
-  gin_rummy/simple_gin_rummy_bot.h
+#  gin_rummy/simple_gin_rummy_bot.cc
+#  gin_rummy/simple_gin_rummy_bot.h
   human/human_bot.cc
   human/human_bot.h
 )
@@ -15,7 +15,7 @@ endif()
 
 add_library (bots OBJECT ${BOT_SOURCES})
 
-add_subdirectory(gin_rummy)
+#add_subdirectory(gin_rummy)
 add_subdirectory(human)
 
 if (NOT WIN32)

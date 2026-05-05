@@ -94,11 +94,13 @@ void signal_handler(int s) {
 }
 
 void signal_installer() {
-  struct sigaction sigIntHandler;
-  sigIntHandler.sa_handler = signal_handler;
-  sigemptyset(&sigIntHandler.sa_mask);
-  sigIntHandler.sa_flags = 0;
-  sigaction(SIGINT, &sigIntHandler, nullptr);
+  //struct sigaction sigIntHandler;
+  //sigIntHandler.sa_handler = signal_handler;
+  //sigemptyset(&sigIntHandler.sa_mask);
+  //sigIntHandler.sa_flags = 0;
+  //sigaction(SIGINT, &sigIntHandler, nullptr);
+  signal(SIGINT, signal_handler);
+  signal(SIGTERM, signal_handler);
 }
 
 int main(int argc, char** argv) {

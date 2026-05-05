@@ -25,6 +25,28 @@ namespace open_spiel {
 namespace algorithms {
 namespace torch_az {
 
+// ==================== Optimized Fixed Hyperparameters ====================
+constexpr int kBoardInputChannels = 12;    // Bitboard dimensions: 12
+constexpr int kBoardHeight = 8;
+constexpr int kBoardWidth = 8;
+constexpr int kMaxMovesPerBoard = 256;     // Maximum number of moves per single board
+constexpr int kMaxOperableBoards = 128;     // Maximum number of operable boards (our side)
+constexpr int kFixedPolicyDim = kMaxOperableBoards * kMaxMovesPerBoard; // Fixed policy dimension: 32768
+constexpr int kEmbeddingDim = 128;          // Node embedding dimension
+
+constexpr int kMaxRuntimeBoards = 1024;
+constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
+
+constexpr int kFixedHeaderSize =
+    4
+    + 2 * kMaxRuntimeEdges
+    + kMaxOperableBoards
+    + kFixedPolicyDim;
+
+//constexpr float PRIORITY_WEIGHT = 10.0f;
+	
+// ========================================================================
+
 struct ResInputBlockConfig {
   int input_channels;
   int input_height;
@@ -179,6 +201,53 @@ class MLPOutputBlockImpl : public torch::nn::Module {
 };
 TORCH_MODULE(MLPOutputBlock);
 
+// ==================== Optimized AlphaGateau Hierarchical Modules ====================
+// Board Node Encoder: Encodes an 11?? board into a 128-dimensional node embedding
+class AGHBoardEncoderImpl : public torch::nn::Module {
+ public:
+  explicit AGHBoardEncoderImpl(int embedding_dim);
+  torch::Tensor forward(torch::Tensor x);
+ private:
+  torch::nn::Conv2d conv1_ = nullptr;
+  torch::nn::Conv2d conv2_ = nullptr;
+  torch::nn::ReLU relu_ = nullptr;
+  int embedding_dim_;
+};
+TORCH_MODULE(AGHBoardEncoder);
+
+// GATEAU Graph Attention Layer: Optimized for spatiotemporal graphs with up to 65536 nodes
+class AGHGATEAUImpl : public torch::nn::Module {
+ public:
+  explicit AGHGATEAUImpl(int embedding_dim);
+  torch::Tensor forward(torch::Tensor nodes, torch::Tensor edge_index);
+ private:
+  torch::nn::Linear edge_lin_ = nullptr;
+  torch::nn::Linear attn_lin_ = nullptr;
+  torch::nn::LeakyReLU leaky_relu_ = nullptr;
+  int embedding_dim_;
+};
+TORCH_MODULE(AGHGATEAU);
+
+// Hierarchical Output Head: Fixed policy dimension of 32768, decoupled from total board count
+class AGHHierarchicalHeadImpl : public torch::nn::Module {
+ public:
+  AGHHierarchicalHeadImpl(int embedding_dim);
+  std::vector<torch::Tensor> forward(
+    torch::Tensor all_node_features,
+    torch::Tensor global_feature,
+    torch::Tensor operable_board_indices,  // Indices of operable boards in the full node list [kMaxOperableBoards]
+    torch::Tensor legal_move_mask,        // Legal move mask [kMaxOperableBoards, kMaxMovesPerBoard]
+    int num_operable_boards               // Current actual number of operable boards
+  );
+ private:
+  torch::nn::MultiheadAttention cross_board_attn_ = nullptr; // ÐÂÔö
+  torch::nn::Linear value_head_ = nullptr;
+  torch::nn::Linear board_selector_head_ = nullptr;
+  torch::nn::Linear move_selector_head_ = nullptr;
+};
+TORCH_MODULE(AGHHierarchicalHead);
+// ================================================================================
+
 // The model class that interacts with the VPNet. The ResInputBlock,
 // ResTorsoBlock, and ResOutputBlock are not to be used by the VPNet directly.
 class ModelImpl : public torch::nn::Module {
@@ -192,6 +261,12 @@ class ModelImpl : public torch::nn::Module {
  private:
   std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask);
   torch::nn::ModuleList layers_;
+
+  // AlphaGateau Hierarchical submodules
+  AGHBoardEncoder ag_hier_encoder_ = nullptr;
+  AGHGATEAU ag_hier_gateau_ = nullptr;
+  AGHHierarchicalHead ag_hier_output_ = nullptr;
+
   torch::Device device_;
   int num_torso_blocks_;
   double weight_decay_;
