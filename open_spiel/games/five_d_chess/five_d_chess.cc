@@ -9,6 +9,8 @@
 #include "hypercuboid.h"
 #include "pgnparser.h"
 
+#include <thread>
+
 namespace open_spiel {
 namespace five_d_chess {
 namespace {
