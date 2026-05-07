@@ -196,6 +196,8 @@ class FiveDChessState : public State {
    std::vector<std::pair<BoardId, std::vector<uint64_t>>> all_boards_;
    std::vector<std::pair<BoardId, std::vector<MoveId>>> operable_boards_;
    std::vector<std::pair<BoardId, BoardId>> boards_edges_;
+   // 新增：Action -> MoveId 缓存映射
+   //mutable std::unordered_map<Action, MoveId> action_to_moveid_cache_;
 };
 
 class FiveDChessGame : public Game {
