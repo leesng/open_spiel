@@ -497,8 +497,20 @@ std::vector<torch::Tensor> ModelImpl::forward(torch::Tensor x, torch::Tensor mas
   // vpnet.cc要求：policy必须是2维 [batch_size, num_actions]
   TORCH_CHECK(policy_logits.dim() == 2, "Policy must be 2D [batch_size, num_actions], got ", policy_logits.dim(), "D");
 
-  // 安全softmax
-  torch::Tensor policy_probs = torch::softmax(policy_logits, -1);
+  // 【修复1】区分模型类型处理
+  torch::Tensor policy_probs;
+  if (this->nn_model_ == "gateau") {
+    // Gateau模型在HierarchicalHead里已经做了softmax，直接用概率
+    policy_probs = policy_logits;
+  } else {
+    // ResNet/MLP模型返回的是logits，需要做softmax
+    policy_probs = torch::softmax(policy_logits, -1);
+  }
+  
+  // 【核心修复2】强制归一化，100%确保概率和严格等于1
+  torch::Tensor sum_probs = policy_probs.sum(-1, true);
+  // clamp_min防止极端情况下除以0
+  policy_probs = policy_probs / sum_probs.clamp_min(1e-8);
   
   return {value, policy_probs};
 }

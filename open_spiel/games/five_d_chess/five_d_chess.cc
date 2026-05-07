@@ -456,8 +456,8 @@ void FiveDChessState::DoApplyAction(Action action) {
   full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
   piece_t pto((piece_t)("QNRB"[promotion]));
   if (is_first_real_selfplay_game_)
-	std::cout << "[" << current_player_ << "," << num_moves_
-              << "]: " << fm.to_string() << pto << "~" << flags << std::endl;
+	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<"." << flags << "}"
+              << current_big_round_ << (current_player_ ? "b" : "w") << "." << fm.to_string() << pto << std::endl;
   bool success = s->apply_move(fm, pto);
   SPIEL_CHECK_TRUE(success);
 
@@ -511,7 +511,9 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   if (current_player_ != c) {
       current_player_ = c;
-	  current_big_round_++;
+	  if (!current_player_) {
+		current_big_round_++;
+	  }
   }
   num_moves_++;
 }
