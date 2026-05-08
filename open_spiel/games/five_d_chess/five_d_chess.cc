@@ -297,9 +297,34 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
 
   // 3. 可操作棋盘索引（局部ID）
   int op_fill = 0;
-  for (const auto& [bid, _] : operable_boards_) {
+  BoardId earliest_non_branch_boardid = std::numeric_limits<BoardId>::max();
+  for (const auto& [board_id, move_list] : operable_boards_) {
     if (op_fill >= kMaxOperableBoards) break;
-    values[ptr++] = static_cast<float>(board_local_id.at(bid));
+	if (operated_boards_.count(board_id) || move_list.empty()) {
+      // 已操作或空棋盘：填-1
+      values[ptr++] = -1.0f;
+    } else {
+      if (earliest_non_branch_boardid == std::numeric_limits<BoardId>::max()) {
+			for (MoveId moveid : move_list) {
+			auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
+			// 判断条件：是合法走法(flags&1) 且 不是pass/分支走法
+			if ((flags & 1) && !((flags & 2) || (u1 == 0 && v1 == 0))) {
+				earliest_non_branch_boardid = board_id;
+				break;
+			}
+		  }
+	  }
+	  
+	  int local_id = board_local_id.at(board_id);
+      if (earliest_non_branch_boardid == board_id) {
+        // 有非分支走法：填 local_id + kMaxRuntimeBoards
+        values[ptr++] = static_cast<float>(local_id/* + kMaxRuntimeBoards*/);
+      } else {
+        // 只有pass/分支走法：填原始 local_id
+        values[ptr++] = static_cast<float>(local_id);
+      }
+	}
+
     op_fill++;
   }
   for (; op_fill < kMaxOperableBoards; ++op_fill) {
@@ -313,12 +338,12 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     if (a >= 0 && a < kNumDistinctActions) {
         MoveId moveid = DecodeAction(a);
 		auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-	  	if ((u1 == 0 && v1 == 0) || (moveid & 8)) { //Pass and checking
+	  	if ((u1 == 0 && v1 == 0) || (flags & 8)) { //Pass and checking
 			values[ptr + a] = 1.0f;
 		} else {
 			values[ptr + a] = 0.9f;
-			if (moveid & 4) values[ptr + a] = 0.01f; // optional
-			if (moveid & 2) values[ptr + a] = 0.01f; // branch
+			if (flags & 4) values[ptr + a] = 0.01f; // optional
+			if (flags & 2) values[ptr + a] = 0.01f; // branch
 		}
 	}
   }
@@ -395,8 +420,8 @@ void FiveDChessState::DoApplyAction(Action action) {
   full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
   piece_t pto((piece_t)("QNRB"[promotion]));
   if (is_first_real_selfplay_game_)
-	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<"." << flags << "}"
-              << current_big_round_ << (current_player_ ? "b" : "w") << "." << fm.to_string() << pto << std::endl;
+	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<":" << flags << "_" << pto << "}"
+              << current_big_round_ << (current_player_ ? "b" : "w") << "." << fm.to_string() << std::endl;
   bool success = s->apply_move(fm, pto);
   SPIEL_CHECK_TRUE(success);
 
