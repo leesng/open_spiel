@@ -244,6 +244,8 @@ class AGHHierarchicalHeadImpl : public torch::nn::Module {
   torch::nn::Linear value_head_ = nullptr;
   torch::nn::Linear board_selector_head_ = nullptr;
   torch::nn::Linear move_selector_head_ = nullptr;
+    // 【新增这一行】可学习的非分支棋盘偏置
+  torch::Tensor non_branch_bias_;
 };
 TORCH_MODULE(AGHHierarchicalHead);
 // ================================================================================

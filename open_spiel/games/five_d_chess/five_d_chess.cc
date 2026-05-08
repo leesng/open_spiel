@@ -318,7 +318,7 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
 	  int local_id = board_local_id.at(board_id);
       if (earliest_non_branch_boardid == board_id) {
         // 有非分支走法：填 local_id + kMaxRuntimeBoards
-        values[ptr++] = static_cast<float>(local_id/* + kMaxRuntimeBoards*/);
+        values[ptr++] = static_cast<float>(local_id + kMaxRuntimeBoards);
       } else {
         // 只有pass/分支走法：填原始 local_id
         values[ptr++] = static_cast<float>(local_id);

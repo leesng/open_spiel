@@ -339,6 +339,9 @@ AGHHierarchicalHeadImpl::AGHHierarchicalHeadImpl(int embedding_dim) {
   // 【只需要加这一行】4头注意力，计算量可以忽略不计
   cross_board_attn_ = register_module("agh_cross_attn", 
       torch::nn::MultiheadAttention(torch::nn::MultiheadAttentionOptions(embedding_dim, 4)));
+	  
+  // 在AGHHierarchicalHeadImpl的构造函数里添加
+  non_branch_bias_ = register_parameter("non_branch_bias", torch::tensor(5.0f));
 }
 
 std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
@@ -358,8 +361,24 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   auto move_priorities_2d = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard});
   auto move_priorities = move_priorities_2d.narrow(0, 0, num_operable_boards);
 
-  // Extract features for operable boards
-  torch::Tensor operable_node_features = all_node_features.index({operable_board_indices});
+  // =============== 【核心新增：完美利用游戏层传递的信息】 ===============
+  // 1. 解析游戏层的棋盘索引编码
+  torch::Tensor valid_board_mask = operable_board_indices != -1;
+  torch::Tensor has_non_branch_mask = operable_board_indices >= kMaxRuntimeBoards;
+
+  // 2. 还原真实的棋盘局部ID（用于提取特征）
+  torch::Tensor real_board_indices = torch::where(
+      has_non_branch_mask,
+      operable_board_indices - kMaxRuntimeBoards,
+      operable_board_indices
+  ).to(torch::kLong);
+
+  // 【修复】把无效棋盘的索引-1替换成0，防止索引越界
+  real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
+
+  // 3. 提取特征（用还原后的真实ID）
+  torch::Tensor operable_node_features = all_node_features.index({real_board_indices});
+  // =======================================================================
 
   // Cross-board multi-head attention (MSVC compatible tuple access)
   torch::Tensor attn_input = operable_node_features.unsqueeze(1);
@@ -371,25 +390,47 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   // 每个棋盘都同时有分支/非分支，棋盘层级无法区分，直接放弃 board_priorities
   torch::Tensor operable_board_logits = board_selector_head_->forward(operable_node_features).squeeze(-1);
 
+  // =============== 【核心新增：利用游戏层信息调整logits】 ===============
+  // 1. 彻底屏蔽无效棋盘（索引=-1）
+  operable_board_logits = torch::where(
+      valid_board_mask,
+      operable_board_logits,
+      -1e20 * torch::ones_like(operable_board_logits)
+  );
+
+  // 2. 给有非分支走法的棋盘加一个强偏置，大幅提升选中概率
+  // 这个值可以根据训练效果调整，建议从5.0开始
+  /*operable_board_logits = torch::where(
+      has_non_branch_mask,
+      operable_board_logits + 5.0f,
+      operable_board_logits
+  );*/
+  // 在forward函数里使用
+  operable_board_logits = torch::where(
+    has_non_branch_mask,
+    operable_board_logits + non_branch_bias_,
+    operable_board_logits
+  );
+  // =======================================================================
+
   // Move selection：暴力硬压分支，不靠log比例
   torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
 
   // ============ 核心强压制：分支0.01 直接扣大分，非分支0.95几乎不扣分 ============
   // 原理：priority越低，直接减掉巨大数值，强行拉开差距
-  //operable_move_logits = operable_move_logits - 80.0f * (1.0f - move_priorities);
   operable_move_logits = operable_move_logits - 100.0f * (1.0f - move_priorities);
 
   // 双重软剪枝（进一步收窄到10，只留最优）
   float max_board_logit = operable_board_logits.max().item<float>();
   operable_board_logits = torch::where(
-      operable_board_logits > max_board_logit - 10.0f,
+      operable_board_logits > max_board_logit - 5.0f,
       operable_board_logits,
       -1e9 * torch::ones_like(operable_board_logits)
   );
 
   float max_move_logit = operable_move_logits.max().item<float>();
   operable_move_logits = torch::where(
-      operable_move_logits > max_move_logit - 10.0f,
+      operable_move_logits > max_move_logit - 5.0f,
       operable_move_logits,
       -1e9 * torch::ones_like(operable_move_logits)
   );
