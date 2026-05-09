@@ -449,6 +449,7 @@ void FiveDChessState::DoApplyAction(Action action) {
   // check move information
   int mvs_cnt = 0;
   for (const auto& [board_id, move_list] : operable_boards_) {
+	  if (operated_boards_.count(board_id)) continue;
 	  if (move_list.empty()) {
 		if (is_first_real_selfplay_game_) std::cout << "has empty board id:" << board_id << std::endl;
 		ms = s->get_match_status();
@@ -459,6 +460,14 @@ void FiveDChessState::DoApplyAction(Action action) {
 	  }
 	  mvs_cnt += move_list.size();
   }
+  
+  operable_boards_.erase(
+	std::remove_if(operable_boards_.begin(), operable_boards_.end(),
+	[this](const std::pair<BoardId, std::vector<MoveId>> &p) {
+		return (this->operated_boards_.count(p.first) || p.second.empty());
+	}),
+	operable_boards_.end());
+  
   // check out of range
   if (mvs_cnt == 0 || mvs_cnt > kNumDistinctActions ||
 	  all_boards_.size() > kMaxRuntimeBoards ||
