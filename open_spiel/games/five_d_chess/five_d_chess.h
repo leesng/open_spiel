@@ -199,7 +199,7 @@ class FiveDChessState : public State {
    std::vector<std::pair<BoardId, BoardId>> boards_edges_;
    // 新增：Action -> MoveId 缓存映射
    //mutable std::unordered_map<Action, MoveId> action_to_moveid_cache_;
-   //BoardId earliest_non_branch_boardid_;
+   BoardId earliest_non_branch_boardid_;
 };
 
 class FiveDChessGame : public Game {
