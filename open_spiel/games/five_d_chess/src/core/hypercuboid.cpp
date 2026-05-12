@@ -1088,7 +1088,7 @@ generator<moveseq> HC_info::search(search_space ss) const
 				auto line_num = l_max + 1 - l_min;
 				if ((++problem_loop_cnt) % (line_num * line_num * 10000) == (line_num * line_num * 10000) - 1) {
 					std::cout << "problem_loop_cnt=" << problem_loop_cnt << ":" << s.to_string() << std::endl;
-					//co_return;
+					co_return;
 				}
             }
             else
