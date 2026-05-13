@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <mutex>
+#include <functional>
 
 #include "open_spiel/spiel.h"
 #include "state.h"
@@ -175,22 +175,6 @@ class FiveDChessState : public State {
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
 
 )";
-//    const std::string init_str = R"(
-//[Timeline "odd"]
-//[Size "8x8"]
-//[Board "custom"]
-//[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
-//[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
-//
-//1. (0T1)d2d3 / (0T1)b7b5 
-//2. (0T2)Nb1d2 / (0T2)Bc8a6 
-//3. (0T3)a2a3 / (0T3)Ng8h6 
-//4. (0T4)e2e4 / (0T4)b5b4 
-//5. (0T5)Ra1a2 / (0T5)e7e6 
-//6. (0T6)a3a4 / (0T6)Ba6>>(0T2)e6 
-//7. (-1T3)a2a3 (0T7)Ke1>>(0T6)e2 / (1T6)Qd8h4 (-1T3)Be6>>(0T2)e6 (0T7)Nb8>>(0T5)c8 
-//8. (-2T3)e2e4 (-1T4)e2e4 (1T7)Ra2a1 (0T8)Bc1>>(0T6)a1 / (-1T4)e7e6 (-2T3)Bc8b7 (0T8)Qd8>>(0T4)h4 (2T6)Ba6>>(1T6)a5 
-//)";
 
    std::optional<::state> s;
    ::match_status_t ms;
@@ -200,6 +184,7 @@ class FiveDChessState : public State {
    // 新增：Action -> MoveId 缓存映射
    //mutable std::unordered_map<Action, MoveId> action_to_moveid_cache_;
    BoardId earliest_non_branch_boardid_;
+   std::vector<std::string> history_moves_list_; //for debug
 };
 
 class FiveDChessGame : public Game {

@@ -1060,7 +1060,7 @@ void HC_info::shuffle(search_space &ss)
 // ------------------------------------------------------------
 
 
-generator<moveseq> HC_info::search(search_space ss) const
+generator<moveseq> HC_info::search(search_space ss, std::function<void()> cb) const
 {
     dprint("begining search: ", ss.to_string());
 	int problem_loop_cnt = 0;
@@ -1086,8 +1086,11 @@ generator<moveseq> HC_info::search(search_space ss) const
 
 				auto [l_min, l_max] = s.get_lines_range();
 				auto line_num = l_max + 1 - l_min;
-				if ((++problem_loop_cnt) % (line_num * line_num * 10000) == (line_num * line_num * 10000) - 1) {
-					std::cout << "problem_loop_cnt=" << problem_loop_cnt << ":" << s.to_string() << std::endl;
+                if ((++problem_loop_cnt) % (line_num * line_num * 10000) == (line_num * line_num * 10000) - 1) {
+                    std::cout << "problem_loop_cnt=" << problem_loop_cnt << ":" << s.to_string() << std::endl;
+                    if (cb) {
+                        cb();
+                    }
 					co_return;
 				}
             }

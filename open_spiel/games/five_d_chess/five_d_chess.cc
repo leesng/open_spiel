@@ -94,6 +94,7 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
   earliest_non_branch_boardid_ = std::numeric_limits<BoardId>::max();
     // get match status
   ms = s->get_match_status();
+  history_moves_list_.clear();
 }
 
 FiveDChessState::FiveDChessState(const FiveDChessState& other)
@@ -107,7 +108,8 @@ FiveDChessState::FiveDChessState(const FiveDChessState& other)
       all_boards_(other.all_boards_),
       operable_boards_(other.operable_boards_),
       boards_edges_(other.boards_edges_),
-	  earliest_non_branch_boardid_(other.earliest_non_branch_boardid_)	  {
+	  earliest_non_branch_boardid_(other.earliest_non_branch_boardid_),
+      history_moves_list_(other.history_moves_list_) {
   is_first_real_selfplay_game_ = false;
 }
 
@@ -392,6 +394,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   // 解码走法参数
   auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(core_moveid);
+  std::function<void()> mvs_cb = [this]() {for (const auto & ss : this->history_moves_list_) {std::cout << ss << std::endl;}};
 
   // 标记棋盘为已操作
   MarkBoardAsOperated(EncodeBoardId(u0, v0));
@@ -400,9 +403,10 @@ void FiveDChessState::DoApplyAction(Action action) {
   // 执行走法
   full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
   piece_t pto((piece_t)("QNRB"[promotion]));
+  history_moves_list_.push_back(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
   if (is_first_real_selfplay_game_)
-	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<":" << flags << "_" << pto << "}"
-              << std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string() << std::endl;
+	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<":" << flags << pto << "}"
+              << history_moves_list_.back() << std::endl;
   bool success = s->apply_move(fm, pto);
   SPIEL_CHECK_TRUE(success);
 
@@ -414,7 +418,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 	if (!submit_success) {
 		if (is_first_real_selfplay_game_) std::cout << "cannot submit for PASS." << std::endl;
 	} else {
-		ms = s->get_match_status();
+		ms = s->get_match_status(mvs_cb);
 		if (ms != match_status_t::PLAYING) {
 			if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
 			return;
@@ -429,13 +433,15 @@ void FiveDChessState::DoApplyAction(Action action) {
     c ? s->get_observation_information<true>() : s->get_observation_information<false>();
   // 优化游戏数据
   int mvs_cnt = 0;
+  bool has_empty_move_board = false;
   earliest_non_branch_boardid_ = std::numeric_limits<BoardId>::max();
   for (auto& [board_id, move_list] : operable_boards_) { 
 	if (!operated_boards_.count(board_id)) {
 		// 原始棋盘走法列表有棋盘为空，检查是否游戏结束？
-		if (move_list.empty()) {
+		if (move_list.empty() && !has_empty_move_board) {
+            has_empty_move_board = true;
 			if (is_first_real_selfplay_game_) std::cout << "has empty board id:" << board_id << std::endl;
-			ms = s->get_match_status();
+			ms = s->get_match_status(mvs_cb);
 			if (ms != match_status_t::PLAYING) {
 				if (is_first_real_selfplay_game_) std::cout << "check2 ms=" << ms << std::endl;
 				return;
@@ -465,7 +471,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 		  }
 		}
 		if (move_list.size() == not_earliest_non_branch_cnt) {
-			if (is_first_real_selfplay_game_) std::cout << "only non-branch board id =" << board_id << ",mvs=" << not_earliest_non_branch_cnt << std::endl;
+			//if (is_first_real_selfplay_game_) std::cout << "only non-branch board id =" << board_id << ",mvs=" << not_earliest_non_branch_cnt << std::endl;
 			for (uint64_t& moveid : move_list) {
 				moveid |= (1ULL << 0); // recovery it
 			}
