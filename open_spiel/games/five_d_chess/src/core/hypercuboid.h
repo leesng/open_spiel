@@ -12,6 +12,7 @@
 #include <string>
 #include <memory>
 #include <tuple>
+#include <chrono>
 #include <functional>
 #include "geometry.h"
 #include "state.h"
@@ -111,7 +112,7 @@ struct HC_info
 
 public:
     static std::tuple<HC_info, search_space> build_HC(const state& s);
-    generator<moveseq> search(search_space ss, std::function<void()> cb = nullptr) const;
+    generator<moveseq> search(search_space ss, std::function<bool(int64_t)> cb = nullptr) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
     generator<moveseq> psearch(search_space ss) const;

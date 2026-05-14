@@ -1060,10 +1060,10 @@ void HC_info::shuffle(search_space &ss)
 // ------------------------------------------------------------
 
 
-generator<moveseq> HC_info::search(search_space ss, std::function<void()> cb) const
+generator<moveseq> HC_info::search(search_space ss, std::function<bool(int64_t)> cb) const
 {
     dprint("begining search: ", ss.to_string());
-	int problem_loop_cnt = 0;
+    auto start = std::chrono::high_resolution_clock::now();
     while(!ss.hcs.empty())
     {
         HC hc = ss.hcs.back();
@@ -1075,7 +1075,7 @@ generator<moveseq> HC_info::search(search_space ss, std::function<void()> cb) co
             point pt = pt_opt.value();
             dprint("got point: ", range_to_string(pt));
             auto problem = find_problem(pt, hc);
-            if(problem)
+            if (problem)
             {
                 dprint("found problem:", problem.value().to_string());
                 // remove the problematic slice from hc, and add the remaining to ss
@@ -1084,15 +1084,14 @@ generator<moveseq> HC_info::search(search_space ss, std::function<void()> cb) co
                 dprint("removed problem, continue search:", new_ss.to_string());
                 ss.concat(std::move(new_ss));
 
-				auto [l_min, l_max] = s.get_lines_range();
-				auto line_num = l_max + 1 - l_min;
-                if ((++problem_loop_cnt) % (line_num * line_num * 10000) == (line_num * line_num * 10000) - 1) {
-                    std::cout << "problem_loop_cnt=" << problem_loop_cnt << ":" << s.to_string() << std::endl;
-                    if (cb) {
-                        cb();
+                if (cb) {
+                    auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
+                    if (cb(us)) {
+                        auto [t, c] = s.get_present();
+                        std::cout << "---->HC search timeout:" << us << "us. present[" << t << ","  << c << "]" << std::endl;
+                        co_return;
                     }
-					co_return;
-				}
+                }
             }
             else
             {

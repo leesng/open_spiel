@@ -937,7 +937,7 @@ template generator<full_move> state::find_checks_impl<true>(std::vector<int>) co
 template std::vector<vec4> state::gen_movable_pieces_impl<false>(std::vector<int>) const;
 template std::vector<vec4> state::gen_movable_pieces_impl<true>(std::vector<int>) const;
 
-match_status_t state::get_match_status(std::function<void()> cb) const
+match_status_t state::get_match_status(std::function<bool(int64_t)> cb) const
 {
     auto [w, ss] = HC_info::build_HC(*this);
     if (w.search(ss, cb).first().has_value())

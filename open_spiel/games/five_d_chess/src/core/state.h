@@ -176,7 +176,7 @@ public:
         std::vector<std::pair<int, std::vector<uint64_t>>>,
         std::vector<std::pair<int, int>>> get_observation_information() const;
 
-    match_status_t get_match_status(std::function<void()> cb = nullptr) const;
+    match_status_t get_match_status(std::function<bool(int64_t)> cb = nullptr) const;
     
     /*
     parse_move: Given a state `s` and a move in string format `move`, try to parse the move and match it to a unique full_move in the context of state `s`.
