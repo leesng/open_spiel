@@ -10,7 +10,6 @@
 #include <tuple>
 #include <utility>
 #include <iostream>
-#include <functional>
 #include "multiverse.h"
 #include "action.h"
 #include "generator.h"
@@ -176,7 +175,7 @@ public:
         std::vector<std::pair<int, std::vector<uint64_t>>>,
         std::vector<std::pair<int, int>>> get_observation_information() const;
 
-    match_status_t get_match_status(std::function<bool(int64_t)> cb = nullptr) const;
+    match_status_t get_match_status(std::string hstr = {}) const;
     
     /*
     parse_move: Given a state `s` and a move in string format `move`, try to parse the move and match it to a unique full_move in the context of state `s`.
@@ -186,7 +185,6 @@ public:
     using parse_pgn_res = std::tuple<std::optional<full_move>, std::optional<piece_t>, std::vector<full_move>>;
     parse_pgn_res parse_move(const pgnparser_ast::move &move) const;
     parse_pgn_res parse_move(const std::string &move) const;
-
 };
 
 #include "state.inl"

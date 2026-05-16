@@ -394,39 +394,6 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   // 解码走法参数
   auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(core_moveid);
-  auto mvs_cb = [this](int64_t dus) {
-	if (dus < 1000000) return false;
-	std::string prefix_prev;
-	std::string all_move_str;
-	std::string delimiter;
-	std::string prefix;
-	std::string suffix;
-	size_t dotPos;
-	for (const auto & input : this->history_moves_list_) {
-		dotPos = input.find('.');
-		if (dotPos != std::string::npos) {
-			prefix = input.substr(0, dotPos + 1);
-			suffix = input.substr(dotPos + 1);
-			if (suffix.find("PASS") != std::string::npos) {
-				suffix.clear();
-			}
-			if (prefix_prev == prefix) {
-				prefix.clear();
-				delimiter = " ";
-				if (!all_move_str.empty()) {
-					if (all_move_str.back() == ' ' || all_move_str.back() == '.')
-						delimiter.clear();
-				}
-			} else {
-				prefix_prev = prefix;
-				delimiter = "\n";
-			}
-			all_move_str += delimiter + prefix + suffix;
-		}
-	}
-	std::cout << all_move_str << std::endl;
-	return true;
-  };
 
   // 标记棋盘为已操作
   MarkBoardAsOperated(EncodeBoardId(u0, v0));
@@ -450,7 +417,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 	if (!submit_success) {
 		if (is_first_real_selfplay_game_) std::cout << "cannot submit for PASS." << std::endl;
 	} else {
-		ms = s->get_match_status(mvs_cb);
+		ms = s->get_match_status(move_list_to_string(history_moves_list_));
 		if (ms != match_status_t::PLAYING) {
 			if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
 			return;
@@ -473,7 +440,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 		if (move_list.empty() && !has_empty_move_board) {
             has_empty_move_board = true;
 			if (is_first_real_selfplay_game_) std::cout << "has empty board id:" << board_id << std::endl;
-			ms = s->get_match_status(mvs_cb);
+			ms = s->get_match_status(move_list_to_string(history_moves_list_));
 			if (ms != match_status_t::PLAYING) {
 				if (is_first_real_selfplay_game_) std::cout << "check2 ms=" << ms << std::endl;
 				return;

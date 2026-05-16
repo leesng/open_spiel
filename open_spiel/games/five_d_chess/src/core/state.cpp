@@ -649,9 +649,9 @@ state::mate_type state::get_mate_type() const
 {
     dprint("state::get_mate_type()");
     auto [w, ss] = HC_info::build_HC(*this);
-    auto hc = ss.hcs.back();
+    auto hc = ss.back();
     search_space ss1 {{hc}};
-    ss.hcs.pop_back();
+    ss.pop_back();
     // check if there is a non-branching move
     if(w.search(ss1).first())
     {
@@ -668,13 +668,13 @@ state::mate_type state::get_mate_type() const
     /* Build the search space `ss2` from `ss` so that
     1. On new lines that are active, erase all moves traveling back in time
     2. On other lines, do nothing */
-    for(HC &hc : ss2.hcs)
+    for(HC &hc : ss2)
     {
         //NOTE: because most axes are the same, the following code can be optimized
         int max_axis = std::min(w.new_axis+timeline_advantage+1, w.dimension-1);
         for(int n = w.new_axis; n <= max_axis; n++)
         {
-            hc.axes[n].erase_if([&w, n, old_t=present](int i){
+            hc[n].erase_if([&w, n, old_t=present](int i){
                 if(std::holds_alternative<arriving_move>(w.axis_coords[n][i]))
                 {
                     auto am = std::get<arriving_move>(w.axis_coords[n][i]);
@@ -937,10 +937,10 @@ template generator<full_move> state::find_checks_impl<true>(std::vector<int>) co
 template std::vector<vec4> state::gen_movable_pieces_impl<false>(std::vector<int>) const;
 template std::vector<vec4> state::gen_movable_pieces_impl<true>(std::vector<int>) const;
 
-match_status_t state::get_match_status(std::function<bool(int64_t)> cb) const
+match_status_t state::get_match_status(std::string hstr) const
 {
     auto [w, ss] = HC_info::build_HC(*this);
-    if (w.search(ss, cb).first().has_value())
+    if (w.search(ss, hstr).first().has_value())
     {
         return match_status_t::PLAYING;
     }

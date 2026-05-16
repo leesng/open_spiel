@@ -122,6 +122,38 @@ constexpr static std::pair<int, int> DecodeBoardId(BoardId board_id) {
   return {u, v};
 }
 
+constexpr static std::string move_list_to_string(std::vector<std::string> str_list) {
+	std::string prefix_prev;
+	std::string all_move_str;
+	std::string delimiter;
+	std::string prefix;
+	std::string suffix;
+	size_t dotPos;
+	for (const auto & input : str_list) {
+		dotPos = input.find('.');
+		if (dotPos != std::string::npos) {
+			prefix = input.substr(0, dotPos + 1);
+			suffix = input.substr(dotPos + 1);
+			if (suffix.find("PASS") != std::string::npos) {
+				suffix.clear();
+			}
+			if (prefix_prev == prefix) {
+				prefix.clear();
+				delimiter = " ";
+				if (!all_move_str.empty()) {
+					if (all_move_str.back() == ' ' || all_move_str.back() == '.')
+						delimiter.clear();
+				}
+			} else {
+				prefix_prev = prefix;
+				delimiter = "\n";
+			}
+			all_move_str += delimiter + prefix + suffix;
+		}
+	}
+	return all_move_str;
+}
+
 //================================ 框架类型定义=================================
 // 前向声明你的引擎类
 class state;
