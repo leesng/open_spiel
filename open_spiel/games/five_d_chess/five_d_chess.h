@@ -10,6 +10,7 @@
 #include <functional>
 
 #include "open_spiel/spiel.h"
+#include "zobrist_cache.h"
 #include "state.h"
 
 namespace open_spiel {
@@ -217,6 +218,25 @@ class FiveDChessState : public State {
    //mutable std::unordered_map<Action, MoveId> action_to_moveid_cache_;
    BoardId earliest_non_branch_boardid_;
    std::vector<std::string> history_moves_list_; //for debug
+   
+   int GetMatchStatus() {
+	Hash128 h = CalcStateHash(all_boards_, current_player_);
+	auto cache = SharedCache::Get().Query(h);
+	
+   //static int aaa = 0;
+   //static int bbb = 0;
+	//aaa++;
+	if (cache) {
+		//bbb++;
+		//if (aaa % 1000 == 999) std::cout << "~v~" << bbb << "/" << aaa << "=" << bbb * 100 / aaa << "%" <<std::endl;
+		return *cache;
+	}
+
+	// 你的原生状态判断逻辑
+	int status = (int)s->get_match_status(move_list_to_string(history_moves_list_));
+	SharedCache::Get().Save(h, status);
+	return status;
+  };
 };
 
 class FiveDChessGame : public Game {

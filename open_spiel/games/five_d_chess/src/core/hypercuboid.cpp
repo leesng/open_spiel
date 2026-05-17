@@ -1258,7 +1258,7 @@ generator<moveseq> HC_info::search(search_space ss, std::string hstr) const
 					
 					if (!hstr.empty()) {
 						auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
-						if (us > 1000000) {
+						if (us > 10000000) { // 10 sec
 							auto [t, c] = s.get_present();
 							std::cout << "HC search timeout:" << us << "us. present[" << t << ","  << c << "]:" << hstr << std::endl;
 							co_return;

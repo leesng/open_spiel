@@ -417,7 +417,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 	if (!submit_success) {
 		if (is_first_real_selfplay_game_) std::cout << "cannot submit for PASS." << std::endl;
 	} else {
-		ms = s->get_match_status(move_list_to_string(history_moves_list_));
+		ms = (match_status_t)GetMatchStatus();//s->get_match_status(move_list_to_string(history_moves_list_));
 		if (ms != match_status_t::PLAYING) {
 			if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
 			return;
@@ -440,7 +440,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 		if (move_list.empty() && !has_empty_move_board) {
             has_empty_move_board = true;
 			if (is_first_real_selfplay_game_) std::cout << "has empty board id:" << board_id << std::endl;
-			ms = s->get_match_status(move_list_to_string(history_moves_list_));
+			ms = (match_status_t)GetMatchStatus();//s->get_match_status(move_list_to_string(history_moves_list_));
 			if (ms != match_status_t::PLAYING) {
 				if (is_first_real_selfplay_game_) std::cout << "check2 ms=" << ms << std::endl;
 				return;
