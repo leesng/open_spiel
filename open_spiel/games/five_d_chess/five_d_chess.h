@@ -21,7 +21,7 @@ using MoveId = uint64_t;
 using TensorIndex = int;
 
 // ==================== 全局常量定义（最终版） ====================
-constexpr int kTotalBoardNumBits = 10;
+constexpr int kTotalBoardNumBits = 11;
 constexpr int kOperableBoardNumBits = 7;
 constexpr int kMoveNumPerBoardBits = 8;
 
@@ -37,15 +37,15 @@ constexpr int kBoardSize = 8;                 // 棋盘大小 8x8
 
 constexpr int kFixedHeaderSize =
     4                                           // 元数据：total_boards, num_operable, num_edges, 保留
-    + 2 * kMaxRuntimeEdges                      // 边索引
     + kMaxOperableBoards                        // 可操作棋盘索引
     + kNumDistinctActions;                      // 合法走法掩码（32768位）
 
 constexpr int kObservationTensorSize =
     kFixedHeaderSize
-    + kMaxRuntimeBoards * kNumPieceChannels * kBoardSize * kBoardSize;
+    + kMaxRuntimeBoards * kNumPieceChannels * kBoardSize * kBoardSize
+	+ 2 * kMaxRuntimeEdges;                      // 边索引
 
-constexpr int kMaxGameLength = 8192;          // 最大游戏长度
+constexpr int kMaxGameLength = kMaxRuntimeBoards;          // 最大游戏长度
 constexpr Action kInvalidAction = -1;         // 无效动作标识
 constexpr MoveId kInvalidMoveId = -1;         // 无效走法标识
 

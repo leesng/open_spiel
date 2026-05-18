@@ -34,16 +34,8 @@ constexpr int kMaxOperableBoards = 128;     // Maximum number of operable boards
 constexpr int kFixedPolicyDim = kMaxOperableBoards * kMaxMovesPerBoard; // Fixed policy dimension: 32768
 constexpr int kEmbeddingDim = 128;          // Node embedding dimension
 
-constexpr int kMaxRuntimeBoards = 1024;
+constexpr int kMaxRuntimeBoards = 1 << 11; // 2048;
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
-
-constexpr int kFixedHeaderSize =
-    4
-    + 2 * kMaxRuntimeEdges
-    + kMaxOperableBoards
-    + kFixedPolicyDim;
-
-//constexpr float PRIORITY_WEIGHT = 10.0f;
 	
 // ========================================================================
 

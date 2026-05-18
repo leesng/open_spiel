@@ -635,14 +635,10 @@ std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor ma
     int num_edges      = (int)obs_flat[2].item<float>();
 
     // 2. 各段偏移
-    int64_t edge_offset   = 4;
-    int64_t oper_offset   = edge_offset + 2 * kMaxRuntimeEdges;
-    int64_t mask_offset   = oper_offset + kMaxOperableBoards;
-    int64_t data_offset   = kFixedHeaderSize;
-
-    // 3. 边索引
-    torch::Tensor edge_index = obs_flat.index({torch::indexing::Slice(edge_offset, edge_offset + 2 * num_edges)});
-    edge_index = edge_index.view({2, -1}).to(torch::kLong);
+    int64_t oper_offset    = 4;//edge_offset + 2 * kMaxRuntimeEdges;
+    int64_t mask_offset    = oper_offset + kMaxOperableBoards;
+    int64_t boards_offset  = 4 + kMaxOperableBoards + kFixedPolicyDim;
+	int64_t edges_offset    = boards_offset + total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;;
 
     // 4. 可操作棋盘索引
     torch::Tensor operable_board_indices = obs_flat.index({torch::indexing::Slice(oper_offset, oper_offset + num_operable)});
@@ -658,9 +654,13 @@ std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor ma
     // 6. 棋盘数据（只取有效部分）
     int64_t valid_board_size = total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;
     torch::Tensor boards = obs_flat.index({
-      torch::indexing::Slice(data_offset, data_offset + valid_board_size)
+      torch::indexing::Slice(boards_offset, boards_offset + valid_board_size)
     });
     boards = boards.view({total_boards, kBoardInputChannels, kBoardHeight, kBoardWidth});
+
+    // 3. 边索引
+    torch::Tensor edge_index = obs_flat.index({torch::indexing::Slice(edges_offset, edges_offset + 2 * num_edges)});
+    edge_index = edge_index.view({2, -1}).to(torch::kLong);
 
     // 7. Board encoding: generate node embeddings for all boards
     torch::Tensor node_features = ag_hier_encoder_->forward(boards);

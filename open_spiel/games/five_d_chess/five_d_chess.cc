@@ -276,19 +276,6 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   values[ptr++] = static_cast<float>(num_edges);
   values[ptr++] = 0.0f;
 
-  // 2. 边索引（局部ID）
-  int edge_fill = 0;
-  for (const auto& [src_bid, dst_bid] : boards_edges_) {
-    if (edge_fill >= kMaxRuntimeEdges) break;
-    values[ptr++] = static_cast<float>(board_local_id.at(src_bid));
-    values[ptr++] = static_cast<float>(board_local_id.at(dst_bid));
-    edge_fill++;
-  }
-  for (; edge_fill < kMaxRuntimeEdges; ++edge_fill) {
-    values[ptr++] = -1.0f;
-    values[ptr++] = -1.0f;
-  }
-
   // 3. 可操作棋盘索引（局部ID）
   int op_fill = 0;
   //BoardId earliest_non_branch_boardid = std::numeric_limits<BoardId>::max();
@@ -333,8 +320,8 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   ptr += kNumDistinctActions;
 
   // 对齐到固定头结束
-  while (ptr < kFixedHeaderSize)
-    values[ptr++] = 0.0f;
+  //while (ptr < kFixedHeaderSize)
+  //  values[ptr++] = 0.0f;
 
   // 5. 棋盘数据（按 all_boards_ 顺序连续写入）
   int board_base = ptr;
@@ -355,6 +342,21 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     }
     local_idx++;
   }
+  ptr += total_boards * kNumPieceChannels * kBoardSize * kBoardSize;
+  
+  // 2. 边索引（局部ID）
+  int edge_fill = 0;
+  for (const auto& [src_bid, dst_bid] : boards_edges_) {
+    if (edge_fill >= kMaxRuntimeEdges) break;
+    values[ptr++] = static_cast<float>(board_local_id.at(src_bid));
+    values[ptr++] = static_cast<float>(board_local_id.at(dst_bid));
+    edge_fill++;
+  }
+  //for (; edge_fill < kMaxRuntimeEdges; ++edge_fill) {
+  //  values[ptr++] = -1.0f;
+  //  values[ptr++] = -1.0f;
+  //}
+  return;
 }
 
 // ==================== 游戏逻辑辅助函数 ====================
