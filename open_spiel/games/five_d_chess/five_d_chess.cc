@@ -389,12 +389,14 @@ void FiveDChessState::DoApplyAction(Action action) {
   }
 
   // check out of range
-  if (
+  auto it = std::max_element(operable_boards_.cbegin(), operable_boards_.cend(),
+	[](const auto& a, const auto& b) {return a.second.size() < b.second.size();});
+  if (it->second.size() > kMaxMovesPerBoard ||
 	  all_boards_.size() > kMaxRuntimeBoards ||
 	  operable_boards_.size() > kMaxOperableBoards ||
 	  boards_edges_.size() > kMaxRuntimeEdges) {
 	ms = match_status_t::STALEMATE;
-	if (is_first_real_selfplay_game_) std::cout
+	if (is_first_real_selfplay_game_) std::cout << "max_board_mvs_cnt=" << it->second.size()
 			<< ",all_boards=" << all_boards_.size()
 			<< ",operable_boards=" << operable_boards_.size()
 			<< ",boards_edges=" << boards_edges_.size()
