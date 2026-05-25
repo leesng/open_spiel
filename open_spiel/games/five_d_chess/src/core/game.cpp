@@ -168,10 +168,9 @@ std::vector<boards_info_t> game::get_current_boards() const
 std::vector<std::pair<int, int>> game::get_current_boards_edges() const
 {
     const state& s = get_current_state();
-    auto [t, c] = s.get_present();
-    auto [all_boards, operable_boards, boards_edges] = c ? s.get_observation_information<true>()
-    : s.get_observation_information<false>();
-
+    auto [all_boards, boards_edges] = s.get_boards_and_edges();
+	//match_status_t ms;
+	//auto operable_boards = s.get_all_board_moves(ms);
     return boards_edges;
 }
 

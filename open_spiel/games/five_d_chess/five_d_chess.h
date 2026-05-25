@@ -51,78 +51,6 @@ constexpr MoveId kInvalidMoveId = -1;         // 无效走法标识
 
 // =========================基础工具函数==============================
 
-constexpr static int l_to_u(int l) {
-    if(l >= 0)
-        return l << 1;
-    else
-        return ~(l << 1);
-}
-constexpr static int tc_to_v(int t, bool c) {
-    return t << 1 | static_cast<int>(c);
-}
-constexpr static int u_to_l(int u) {
-    if(u & 1)
-        return ~(u >> 1);
-    else
-        return u >> 1;
-}
-constexpr static std::pair<int, bool> v_to_tc(int v) {
-    return {v >> 1, static_cast<bool>(v & 1)};
-}
-
-constexpr static MoveId EncodeMoveId(int u0, int v0, int y0, int x0,
-                                     int u1, int v1, int y1, int x1,
-                                     int promotion, int flags) {
-  MoveId moveid = 0;
-  
-  // 附加信息
-  moveid |= (static_cast<uint64_t>(flags) & 0xFULL) << 0;
-  moveid |= (static_cast<uint64_t>(promotion) & 0xFULL) << 4;
-  
-  // 目的位置
-  moveid |= (static_cast<uint64_t>(x1) & 0x7ULL) << 8;
-  moveid |= (static_cast<uint64_t>(y1) & 0x7ULL) << 11;
-  moveid |= (static_cast<uint64_t>(v1) & 0xFFULL) << 14;
-  moveid |= (static_cast<uint64_t>(u1) & 0xFFULL) << 22;
-  
-  // 源位置
-  moveid |= (static_cast<uint64_t>(x0) & 0x7ULL) << 30;
-  moveid |= (static_cast<uint64_t>(y0) & 0x7ULL) << 33;
-  moveid |= (static_cast<uint64_t>(v0) & 0xFFULL) << 36;
-  moveid |= (static_cast<uint64_t>(u0) & 0xFFULL) << 44;
-  
-  return moveid;
-}
-
-constexpr static std::tuple<int, int, int, int, int, int, int, int, int, int> 
-DecodeMoveId(MoveId moveid) {
-  int u0 = static_cast<int>((moveid >> 44) & 0xFF);
-  int v0 = static_cast<int>((moveid >> 36) & 0xFF);
-  int y0 = static_cast<int>((moveid >> 33) & 0x7);
-  int x0 = static_cast<int>((moveid >> 30) & 0x7);
-  
-  int u1 = static_cast<int>((moveid >> 22) & 0xFF);
-  int v1 = static_cast<int>((moveid >> 14) & 0xFF);
-  int y1 = static_cast<int>((moveid >> 11) & 0x7);
-  int x1 = static_cast<int>((moveid >> 8) & 0x7);
-  
-  int promotion = static_cast<int>((moveid >> 4) & 0xF);
-  int flags = static_cast<int>((moveid >> 0) & 0xF);
-  
-  return {u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags};
-}
-
-constexpr static BoardId EncodeBoardId(int u, int v) {
-  // 统一编码：u(8位高位) + v(8位低位)，全局唯一
-  return static_cast<BoardId>(((u & 0xFF) << 8) | (v & 0xFF));
-}
-
-constexpr static std::pair<int, int> DecodeBoardId(BoardId board_id) {
-  int u = (board_id >> 8) & 0xFF;
-  int v = board_id & 0xFF;
-  return {u, v};
-}
-
 constexpr static std::string move_list_to_string(std::vector<std::string> str_list) {
 	std::string prefix_prev;
 	std::string all_move_str;
@@ -189,11 +117,6 @@ class FiveDChessState : public State {
   // 棋盘张量索引映射（全局唯一，GNN用，完全不动）
   TensorIndex GetTensorIndexForBoard(BoardId board_id) const;
 
-  // 游戏逻辑辅助函数
-  int IsBigRoundOver() const;
-  void StartNewBigRound();
-  void MarkBoardAsOperated(BoardId board_id);
-
   // 游戏状态
   bool is_first_real_selfplay_game_;
   Player current_player_;
@@ -219,24 +142,6 @@ class FiveDChessState : public State {
    BoardId earliest_non_branch_boardid_;
    std::vector<std::string> history_moves_list_; //for debug
    
-   int GetMatchStatus() {
-	Hash128 h = CalcStateHash(all_boards_, current_player_);
-	auto cache = SharedCache::Get().Query(h);
-	
-   //static int aaa = 0;
-   //static int bbb = 0;
-	//aaa++;
-	if (cache) {
-		//bbb++;
-		//if (aaa % 1000 == 999) std::cout << "~v~" << bbb << "/" << aaa << "=" << bbb * 100 / aaa << "%" <<std::endl;
-		return *cache;
-	}
-
-	// 你的原生状态判断逻辑
-	int status = (int)s->get_match_status(move_list_to_string(history_moves_list_));
-	SharedCache::Get().Save(h, status);
-	return status;
-  };
 };
 
 class FiveDChessGame : public Game {

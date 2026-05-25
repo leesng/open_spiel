@@ -8,6 +8,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 #include <iostream>
 #include "multiverse.h"
@@ -24,6 +25,7 @@ class state
     */
     int present;
     bool player;
+	bool has_passed;
     
     template<bool C>
     std::vector<vec4> gen_movable_pieces_impl(std::vector<int> lines) const;
@@ -43,7 +45,7 @@ public:
     
     // standard copy-constructors
     state(const state& other)
-    : m{other.m->clone()}, present{other.present}, player{other.player} {}
+    : m{other.m->clone()}, present{other.present}, player{other.player},  has_passed{other.has_passed} {}
     state(state&&) noexcept = default;
     state& operator=(state other) noexcept {
         swap(*this, other);
@@ -53,6 +55,8 @@ public:
         std::swap(a.m, b.m);
         std::swap(a.present, b.present);
         std::swap(a.player, b.player);
+		std::swap(a.has_passed, b.has_passed);
+
     }
 
 
@@ -170,13 +174,11 @@ public:
     std::string to_string() const;
     std::string show_fen() const;
 
-	template <bool COLOR> bool process_been_checked_boards(std::vector<std::pair<int,std::vector<uint64_t>>> &operable_boards) const;
-    template <bool COLOR> std::tuple<std::vector<std::pair<int, std::vector<uint64_t>>>,
-        std::vector<std::pair<int, std::vector<uint64_t>>>,
-        std::vector<std::pair<int, int>>> get_observation_information() const;
+	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
+	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms) const;
+	bool big_round_over() const;
 
-    match_status_t get_match_status(std::string hstr = {}) const;
-    
+	
     /*
     parse_move: Given a state `s` and a move in string format `move`, try to parse the move and match it to a unique full_move in the context of state `s`.
     - If successful, return a tuple with first index set to the matched full_move and second index set to the promotion piece if any.

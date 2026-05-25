@@ -58,7 +58,7 @@ class action
 {
     std::vector<ext_move> mvs;
     int branching_index;
-    action(std::vector<ext_move> mvs) : mvs(mvs) {}
+    action(std::vector<ext_move> mvs) : mvs(mvs), branching_index{ 0 } {}
 public:
     action() : mvs{}, branching_index{0} {}
     /* Sort a vector of extended moves according to the standard order

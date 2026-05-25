@@ -99,9 +99,8 @@ public:
     template<bool SHOW_UMOVE=false>
     std::vector<boards_info_t> get_boards() const;
     std::vector<std::shared_ptr<board>> get_newboard_by_move(vec4 p, vec4 q, bool player, piece_t promote_to = QUEEN_W) const;
-	template <bool COLOR> std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
-           std::vector<std::pair<int,std::vector<uint64_t>>>,
-           std::vector<std::pair<int,int>>> get_observation_information() const;
+	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
+	template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves(bool allow_pass = false) const;
     
     std::string to_string() const;
     piece_t get_piece(vec4 a, bool color) const;
@@ -128,5 +127,86 @@ public:
     virtual std::string pretty_lt(vec4 p0) const = 0;
     virtual ~multiverse() = default;
 };
+
+/*
+ The following static functions describe the correspondence between two coordinate systems: L,T and u,v
+ 
+l_to_u make use of the bijection from integers to non-negative integers:
+x -> ~(x>>1)
+ */
+constexpr static int l_to_u(int l)
+{
+    if(l >= 0)
+        return l << 1;
+    else
+        return ~(l << 1);
+}
+
+constexpr static int tc_to_v(int t, bool c)
+{
+    return t << 1 | static_cast<int>(c);
+}
+
+constexpr static int u_to_l(int u)
+{
+    if(u & 1)
+        return ~(u >> 1);
+    else
+        return u >> 1;
+}
+
+constexpr static std::pair<int, bool> v_to_tc(int v)
+{
+    return {v >> 1, static_cast<bool>(v & 1)};
+}
+
+constexpr static uint64_t EncodeMoveId(int u0, int v0, int y0, int x0,
+                                     int u1, int v1, int y1, int x1,
+                                     int pto, int flags) {
+  uint64_t moveid = 0;
+  
+  moveid |= (static_cast<uint64_t>(flags) & 0xFULL) << 0;
+  moveid |= (static_cast<uint64_t>(pto) & 0xFULL) << 4;
+  
+  moveid |= (static_cast<uint64_t>(x1) & 0x7ULL) << 8;
+  moveid |= (static_cast<uint64_t>(y1) & 0x7ULL) << 11;
+  moveid |= (static_cast<uint64_t>(v1) & 0xFFULL) << 14;
+  moveid |= (static_cast<uint64_t>(u1) & 0xFFULL) << 22;
+  
+  moveid |= (static_cast<uint64_t>(x0) & 0x7ULL) << 30;
+  moveid |= (static_cast<uint64_t>(y0) & 0x7ULL) << 33;
+  moveid |= (static_cast<uint64_t>(v0) & 0xFFULL) << 36;
+  moveid |= (static_cast<uint64_t>(u0) & 0xFFULL) << 44;
+  
+  return moveid;
+}
+
+constexpr static std::tuple<int, int, int, int, int, int, int, int, int, int> 
+DecodeMoveId(uint64_t moveid) {
+  int u0 = static_cast<int>((moveid >> 44) & 0xFF);
+  int v0 = static_cast<int>((moveid >> 36) & 0xFF);
+  int y0 = static_cast<int>((moveid >> 33) & 0x7);
+  int x0 = static_cast<int>((moveid >> 30) & 0x7);
+  
+  int u1 = static_cast<int>((moveid >> 22) & 0xFF);
+  int v1 = static_cast<int>((moveid >> 14) & 0xFF);
+  int y1 = static_cast<int>((moveid >> 11) & 0x7);
+  int x1 = static_cast<int>((moveid >> 8) & 0x7);
+  
+  int pto = static_cast<int>((moveid >> 4) & 0xF);
+  int flags = static_cast<int>((moveid >> 0) & 0xF);
+  
+  return {u0, v0, y0, x0, u1, v1, y1, x1, pto, flags};
+}
+
+constexpr static int EncodeBoardId(int u, int v) {
+  return static_cast<int>(((u & 0xFF) << 8) | (v & 0xFF));
+}
+
+constexpr static std::pair<int, int> DecodeBoardId(int board_id) {
+  int u = (board_id >> 8) & 0xFF;
+  int v = board_id & 0xFF;
+  return {u, v};
+}
 
 #endif /* MULTIVERSE_BASE_H */

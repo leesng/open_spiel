@@ -172,5 +172,26 @@ inline Hash128 CalcStateHash(const std::vector<std::pair<int, std::vector<uint64
     return hash;
 }
 
+/*
+   int GetMatchStatus() {
+	Hash128 h = CalcStateHash(all_boards_, current_player_);
+	auto cache = SharedCache::Get().Query(h);
+	
+   //static int aaa = 0;
+   //static int bbb = 0;
+	//aaa++;
+	if (cache) {
+		//bbb++;
+		//if (aaa % 1000 == 999) std::cout << "~v~" << bbb << "/" << aaa << "=" << bbb * 100 / aaa << "%" <<std::endl;
+		return *cache;
+	}
+
+	// 你的原生状态判断逻辑
+	int status = (int)s->get_match_status(move_list_to_string(history_moves_list_));
+	SharedCache::Get().Save(h, status);
+	return status;
+  };
+*/
+
 }  // namespace five_d_chess
 }  // namespace open_spiel

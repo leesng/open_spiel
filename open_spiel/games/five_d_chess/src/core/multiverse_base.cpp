@@ -10,38 +10,6 @@
 #include <initializer_list>
 #include <cassert>
 
-/*
- The following static functions describe the correspondence between two coordinate systems: L,T and u,v
- 
-l_to_u make use of the bijection from integers to non-negative integers:
-x -> ~(x>>1)
- */
-constexpr static int l_to_u(int l)
-{
-    if(l >= 0)
-        return l << 1;
-    else
-        return ~(l << 1);
-}
-
-constexpr static int tc_to_v(int t, bool c)
-{
-    return t << 1 | static_cast<int>(c);
-}
-
-constexpr static int u_to_l(int u)
-{
-    if(u & 1)
-        return ~(u >> 1);
-    else
-        return u >> 1;
-}
-
-constexpr static std::pair<int, bool> v_to_tc(int v)
-{
-    return {v >> 1, static_cast<bool>(v & 1)};
-}
-
 multiverse::multiverse(std::vector<std::tuple<int, int, bool, std::string>> bds, int size_x, int size_y)
 : size_x(size_x), size_y(size_y), l_min(0), l_max(0)
 {
@@ -259,21 +227,16 @@ std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec
 #define MAKE_MOVE_ID(u0,v0,y0,x0,u1,v1,y1,x1,promote_to,flags) ( \
 (u0) << 44 | (v0) << 36 | (y0) << 33 | (x0) << 30 | (u1) << 22 | (v1) << 14 | (y1) << 11 | (x1) << 8 | \
 (promote_to) << 4 | (flags))  // bit 0 is valid bit; bit 1 is is branching move
-template <bool COLOR> std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
-           std::vector<std::pair<int,std::vector<uint64_t>>>,
-           std::vector<std::pair<int,int>>> multiverse::get_observation_information() const
+std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
+           std::vector<std::pair<int,int>>> multiverse::get_boards_and_edges() const
 {
     std::vector<std::pair<int,int>> boards_edges;
 	std::vector<std::pair<int,std::vector<uint64_t>>> all_boards;
-	//std::vector<std::pair<int,int>> tmp_end_boards;
-	std::vector<std::pair<int,std::vector<uint64_t>>> operable_boards;
 
-	//int null_u_cnt = 0, active_u_max = static_cast<int>(boards.size()), active_v_min = 0xFF;
-	//int max_u0 = -1, max_u1 = -1;
-	auto present_tc = get_present();
+	//auto present_tc = get_present();
     for(int u = 0; u < static_cast<int>(boards.size()); u++) {
         const auto& timeline = boards[u];
-        int l = u_to_l(u);
+        //int l = u_to_l(u);
         for(int v = 0; v < static_cast<int>(timeline.size()); v++) {
             const auto [t, c] = v_to_tc(v);
             if(timeline[v] != nullptr) {
@@ -305,80 +268,93 @@ template <bool COLOR> std::tuple<std::vector<std::pair<int,std::vector<uint64_t>
 				board_planes.push_back(timeline[v]->umove());
                 all_boards.push_back(std::make_pair(MAKE_BOARD_ID(u,v), board_planes));
 				
-				// get operated boards and moves, for time line end board
-				if (v + 1 == static_cast<int>(timeline.size())) {
-					if (c != COLOR) {
-						continue;
-					}
-					//////////////////begin getting operted boards and moves///////////////////////////////////
-					std::vector<uint64_t> board_moves;
-					// is pass move ?
-					bool cannot_pass_it = (active_min <= l && l <= active_max && v_to_tc(v) == present_tc);
-					if (!cannot_pass_it) {
-					board_moves.push_back(MAKE_MOVE_ID((uint64_t)u,(uint64_t)v,0,0, 0,0,0,0,0, 
-						(uint64_t)!cannot_pass_it)); // pass valid only in optional-lines
-					}
-					// generate all moves
-					bitboard_t b_pieces = boards[u][v]->friendly<COLOR>() & ~boards[u][v]->wall();
-					for (int src_pos : marked_pos(b_pieces)) {
-						vec4 p = vec4(src_pos, vec4(0,0,t,l));
-						auto gen = gen_moves<COLOR>(p);
-						for (const auto& [r, bb] : gen) {
-							for(int dst_pos : marked_pos(bb)) {
-								vec4 q = vec4(dst_pos, r);
-								// is branching move
-								bool non_branching = (std::make_pair(q.t(), COLOR) == get_timeline_end(q.l()));
-								// out of range???
-								bool out_of_range = outofrange(p, q, COLOR);
-								if (out_of_range) {
-									continue;
-								}
-
-								// been attacked
-								auto nbs = get_newboard_by_move(p, q, COLOR);
-								bool been_attacked = false;
-								for (int i = 0; been_attacked == false && i < static_cast<int>(nbs.size()); ++i) {
-									for(int pos2 : marked_pos(nbs[i]->royal() & nbs[i]->friendly<COLOR>())) {
-										if(nbs[i]->is_under_attack(pos2, COLOR)) {
-											//std:: count << "physical check" << std::endl;
-											been_attacked = true;
-											break;
-										}
-									}
-								}
-								if (been_attacked) {
-									continue;
-								}
-
-								// make move id code
-								uint64_t mid = MAKE_MOVE_ID(
-								(uint64_t)l_to_u(p.l()), (uint64_t)tc_to_v(p.t(), c), (uint64_t)p.y(), (uint64_t)p.x(),
-								(uint64_t)l_to_u(q.l()), (uint64_t)tc_to_v(q.t(), c), (uint64_t)q.y(), (uint64_t)q.x(), 
-								0, (uint64_t)!cannot_pass_it << 2 | (uint64_t)!non_branching << 1 | (uint64_t)!been_attacked);
-								board_moves.push_back(mid); // promote to QUEEN , default
-								if ((boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
-									board_moves.push_back(mid | 1 << 4); // KNIGHT
-									board_moves.push_back(mid | 2 << 4); // ROOK
-									board_moves.push_back(mid | 3 << 4); // BISHOP
-								}
-							}
-						}
-					}
-
-					std::sort(board_moves.begin(), board_moves.end());
-					//for (int i = 0; i < static_cast<int>(board_moves.size()); ++i) {
-					//	std::cout << "sorted end mv[" << std::dec << i << "] = 0x" << std::hex << board_moves[i] << std::dec << std::endl;
-					//}
-					operable_boards.push_back(std::make_pair(MAKE_BOARD_ID(u,v), board_moves));
-					//////////////////end of getting operted boards and moves///////////////////////////////////
-		
-				}
             }
         }
 
     }
 
-    return std::make_tuple(all_boards, operable_boards, boards_edges);
+    return std::make_tuple(all_boards, boards_edges);
+}
+
+template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiverse::get_operable_boards_moves(bool allow_pass) const
+{
+	std::vector<std::pair<int,std::vector<uint64_t>>> operable_boards;
+
+	auto present_tc = get_present();
+    for(int u = 0; u < static_cast<int>(boards.size()); u++) {
+		if (boards[u].empty()) {
+			continue;
+		}
+        int l = u_to_l(u);
+		int v = timeline_end[u];
+        auto [t, c] = v_to_tc(v);
+		if (c != COLOR) {
+			continue;
+		}
+		//////////////////begin getting operted boards and moves///////////////////////////////////
+		std::vector<uint64_t> board_moves;
+		// can pass ?
+		bool cannot_pass_it = (active_min <= l && l <= active_max && v_to_tc(v) == present_tc);
+		bool cannot_submit_it = (COLOR == present_tc.second);
+		if (allow_pass && !cannot_pass_it && !cannot_submit_it) {
+			board_moves.push_back(MAKE_MOVE_ID((uint64_t)u,(uint64_t)v,0,0, 0,0,0,0,0, 1)); // pass valid only in optional-lines
+		}
+		// generate all moves
+		bitboard_t b_pieces = boards[u][v]->friendly<COLOR>() & ~boards[u][v]->wall();
+		for (int src_pos : marked_pos(b_pieces)) {
+			vec4 p = vec4(src_pos, vec4(0,0,t,l));
+			auto gen = gen_moves<COLOR>(p);
+			for (const auto& [r, bb] : gen) {
+				for(int dst_pos : marked_pos(bb)) {
+					vec4 q = vec4(dst_pos, r);
+					// is branching move
+					bool non_branching = (std::make_pair(q.t(), COLOR) == get_timeline_end(q.l()));
+					// out of range???
+					bool out_of_range = outofrange(p, q, COLOR);
+					if (out_of_range) {
+						continue;
+					}
+
+					// been attacked
+					auto nbs = get_newboard_by_move(p, q, COLOR);
+					bool been_attacked = false;
+					for (int i = 0; been_attacked == false && i < static_cast<int>(nbs.size()); ++i) {
+						for(int pos2 : marked_pos(nbs[i]->royal() & nbs[i]->friendly<COLOR>())) {
+							if(nbs[i]->is_under_attack(pos2, COLOR)) {
+								//std:: count << "physical check" << std::endl;
+								been_attacked = true;
+								break;
+							}
+						}
+					}
+					if (been_attacked) {
+						continue;
+					}
+
+					// make move id code
+					uint64_t mid = MAKE_MOVE_ID(
+					(uint64_t)l_to_u(p.l()), (uint64_t)tc_to_v(p.t(), c), (uint64_t)p.y(), (uint64_t)p.x(),
+					(uint64_t)l_to_u(q.l()), (uint64_t)tc_to_v(q.t(), c), (uint64_t)q.y(), (uint64_t)q.x(), 
+					0, (uint64_t)!cannot_pass_it << 2 | (uint64_t)!non_branching << 1 | 1);
+					board_moves.push_back(mid); // promote to QUEEN , default
+					if ((boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
+						board_moves.push_back(mid | 1 << 4); // KNIGHT
+						board_moves.push_back(mid | 2 << 4); // ROOK
+						board_moves.push_back(mid | 3 << 4); // BISHOP
+					}
+				}
+			}
+		}
+
+		std::sort(board_moves.begin(), board_moves.end());
+		//for (int i = 0; i < static_cast<int>(board_moves.size()); ++i) {
+		//	std::cout << "sorted end mv[" << std::dec << i << "] = 0x" << std::hex << board_moves[i] << std::dec << std::endl;
+		//}
+		operable_boards.push_back(std::make_pair(MAKE_BOARD_ID(u,v), board_moves));
+		//////////////////end of getting operted boards and moves///////////////////////////////////
+    }
+
+    return operable_boards;
 }
 
 std::string multiverse::to_string() const
@@ -1368,6 +1344,5 @@ template movegen_t multiverse::gen_moves<false>(vec4 p) const;
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<true>() const;
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<false>() const;
 
-template std::tuple<std::vector<std::pair<int, std::vector<uint64_t>>>, std::vector<std::pair<int, std::vector<uint64_t>>>, std::vector<std::pair<int, int>>> multiverse::get_observation_information<true>() const;
-template std::tuple<std::vector<std::pair<int, std::vector<uint64_t>>>, std::vector<std::pair<int, std::vector<uint64_t>>>, std::vector<std::pair<int, int>>> multiverse::get_observation_information<false>() const;
-
+template std::vector<std::pair<int,std::vector<uint64_t>>> multiverse::get_operable_boards_moves<true>(bool) const;
+template std::vector<std::pair<int,std::vector<uint64_t>>> multiverse::get_operable_boards_moves<false>(bool) const;
