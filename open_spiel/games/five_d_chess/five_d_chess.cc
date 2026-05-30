@@ -41,7 +41,7 @@ RegisterSingleTensorObserver single_tensor(kGameType.short_name);
 
 }  // namespace
 
-// ==================== Game 类实现 ====================
+// ==================== Game Class Implementation ====================
 FiveDChessGame::FiveDChessGame(const GameParameters& params)
     : Game(kGameType, params) {}
 
@@ -77,7 +77,7 @@ std::vector<int> FiveDChessGame::ObservationTensorShape() const {
   return {kObservationTensorSize};
 }
 
-// ==================== FiveDChessState 类实现 ====================
+// ==================== FiveDChessState Class Implementation ====================
 FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
     : State(game),
       s(*pgnparser(init_str).parse_game()),
@@ -92,7 +92,6 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
 
   current_player_ = c;
   earliest_non_branch_boardid_ = std::numeric_limits<BoardId>::max();
-    // get match status
   history_moves_list_.clear();
 }
 
@@ -106,7 +105,7 @@ FiveDChessState::FiveDChessState(const FiveDChessState& other)
       all_boards_(other.all_boards_),
       operable_boards_(other.operable_boards_),
       boards_edges_(other.boards_edges_),
-	  earliest_non_branch_boardid_(other.earliest_non_branch_boardid_),
+      earliest_non_branch_boardid_(other.earliest_non_branch_boardid_),
       history_moves_list_(other.history_moves_list_) {
   is_first_real_selfplay_game_ = false;
 }
@@ -117,30 +116,27 @@ Player FiveDChessState::CurrentPlayer() const {
   return current_player_;
 }
 
-// ==================== 核心：合法动作（直接遍历生成下标） ====================
+// Generate legal actions by direct iteration
 std::vector<Action> FiveDChessState::LegalActions() const {
   if (IsTerminal()) return {};
 
   std::vector<Action> result;
-  //BoardId earliest_non_branch_boardid = std::numeric_limits<BoardId>::max();
-
   int board_idx = 0;
   for (const auto& [board_id, move_list] : operable_boards_) {
-		int move_idx = 0;
-		for (MoveId moveid : move_list) {
-		  auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-		  if ((flags & 1)) {
-		      result.push_back(static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx));
-			  // push action end
-		  }
-		  move_idx++;
-		}
+    int move_idx = 0;
+    for (MoveId moveid : move_list) {
+      auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
+      if ((flags & 1)) {
+        result.push_back(static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx));
+      }
+      move_idx++;
+    }
     board_idx++;
   }
   return result;
 }
 
-// ==================== Action 编码：实时遍历匹配 ====================
+// Encode MoveId to Action by real-time matching
 Action FiveDChessState::EncodeAction(MoveId moveid) const {
   int board_idx = 0;
   for (const auto& [board_id, move_list] : operable_boards_) {
@@ -148,7 +144,6 @@ Action FiveDChessState::EncodeAction(MoveId moveid) const {
     for (MoveId mid : move_list) {
       auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(mid);
       if (mid == moveid) {
-        // 直接按固定偏移计算全局 Action 编号
         return static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx);
       }
       move_idx++;
@@ -157,18 +152,18 @@ Action FiveDChessState::EncodeAction(MoveId moveid) const {
   }
   return kInvalidAction;
 }
-// ==================== Action 解码：实时遍历查找（无缓存！） ====================
+
+// Decode Action to MoveId by real-time lookup (no cache)
 MoveId FiveDChessState::DecodeAction(Action action) const {
-  // 直接从全局 Action 编号反推出棋盘索引和走法索引
   int board_idx = action / kMaxMovesPerBoard;
   int move_idx = action % kMaxMovesPerBoard;
-  
+
   if (board_idx < operable_boards_.size()) {
-	if (move_idx < operable_boards_[board_idx].second.size()) {
-	  return operable_boards_[board_idx].second[move_idx];
-	}
+    if (move_idx < operable_boards_[board_idx].second.size()) {
+      return operable_boards_[board_idx].second[move_idx];
+    }
   }
- 
+
   std::cerr <<"[" << std::this_thread::get_id() << "] DecodeAction Invalid Action: " << action << ", bid" << board_idx << ", mid" << move_idx << std::endl;
   std::cerr << "operable boards size: " << operable_boards_.size() << std::endl;
   std::cerr << "operable  moves size: " << (board_idx < operable_boards_.size() ? operable_boards_[board_idx].second.size() : 0) << std::endl;
@@ -178,20 +173,20 @@ MoveId FiveDChessState::DecodeAction(Action action) const {
 std::string FiveDChessState::ActionToString(Player player, Action action) const {
   MoveId moveid = DecodeAction(action);
   auto [u0, v0, y0, x0, u1, v1, y1, x1, prto, flags] = DecodeMoveId(moveid);
-  
-  std::string SrcStr("("+std::to_string(u0)+","+std::to_string(v0)+","+std::to_string(y0)+","+std::to_string(x0)+")");
-  std::string DesStr("("+std::to_string(u1)+","+std::to_string(v1)+","+std::to_string(y1)+","+std::to_string(x1)+")");
+
+  std::string SrcStr("(" + std::to_string(u0) + "," + std::to_string(v0) + "," + std::to_string(y0) + "," + std::to_string(x0) + ")");
+  std::string DesStr("(" + std::to_string(u1) + "," + std::to_string(v1) + "," + std::to_string(y1) + "," + std::to_string(x1) + ")");
   std::string ArrowStr(u0 == u1 && v0 == v1 || 0 == u1 && 0 == v1 ? " -> " : " >> ");
   std::string PassStr(0 == u1 && 0 == v1 ? " [PASS]" : "");
   std::string ChecksStr(flags & 8 ? " [CHECKING]" : "");
   std::string OptionalStr(flags & 4 ? " [OPTIONAL]" : "");
   std::string BranchStr(flags & 2 ? " [BRANCH]" : "");
   std::string PromotionStr(prto == 0 ? " = Q" : prto == 1 ? " = N" :
-                           prto == 2 ? " = R" : prto == 3 ? " = B" : "");
+                             prto == 2 ? " = R" : prto == 3 ? " = B" : "");
 
   return absl::StrCat(
-      SrcStr+ArrowStr+DesStr+PromotionStr+ 
-	  PassStr+ChecksStr+OptionalStr+BranchStr
+      SrcStr + ArrowStr + DesStr + PromotionStr +
+      PassStr + ChecksStr + OptionalStr + BranchStr
   );
 }
 
@@ -218,11 +213,11 @@ std::vector<double> FiveDChessState::Returns() const {
     return {0.0, 0.0};
   }
   if (ms == match_status_t::WHITE_WINS) {
-    return {1.0, -1.0};  // 白胜
+    return {1.0, -1.0};
   } else if (ms == match_status_t::BLACK_WINS) {
-    return {-1.0, 1.0};  // 黑胜
+    return {-1.0, 1.0};
   } else {
-    return {0.0, 0.0};   // 和棋
+    return {0.0, 0.0};
   }
 }
 
@@ -247,11 +242,10 @@ std::string FiveDChessState::ObservationString(Player player) const {
   return ToString();
 }
 
-// ==================== 观察张量 ====================
 void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values) const {
   SPIEL_CHECK_GE(player, 0);
   SPIEL_CHECK_LT(player, NumPlayers());
-  
+
   std::fill(values.begin(), values.end(), 0.0f);
   int ptr = 0;
 
@@ -259,60 +253,54 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   int num_operable = operable_boards_.size();
   int num_edges = boards_edges_.size();
 
-  // 构建 BoardId → 连续局部ID (0,1,2...)
   std::unordered_map<BoardId, int> board_local_id;
   int local_idx = 0;
   for (const auto& [bid, _] : all_boards_) {
     board_local_id[bid] = local_idx++;
   }
 
-  // 1. 元数据
+  // Metadata
   values[ptr++] = static_cast<float>(total_boards);
   values[ptr++] = static_cast<float>(num_operable);
   values[ptr++] = static_cast<float>(num_edges);
   values[ptr++] = 0.0f;
 
-  // 3. 可操作棋盘索引（局部ID）
+  // Operable board indices
   int op_fill = 0;
-  //BoardId earliest_non_branch_boardid = std::numeric_limits<BoardId>::max();
   for (const auto& [board_id, move_list] : operable_boards_) {
     if (op_fill >= kMaxOperableBoards) break;
-	 {
-	  int local_id = board_local_id.at(board_id);
+    {
+      int local_id = board_local_id.at(board_id);
       if (earliest_non_branch_boardid_ == board_id) {
-        // 有非分支走法：填 local_id + kMaxRuntimeBoards
         values[ptr++] = static_cast<float>(local_id + kMaxRuntimeBoards);
       } else {
-        // 只有pass/分支走法：填原始 local_id
         values[ptr++] = static_cast<float>(local_id);
       }
-	}
-
+    }
     op_fill++;
   }
   for (; op_fill < kMaxOperableBoards; ++op_fill) {
     values[ptr++] = -1.0f;
   }
 
-  // 4. 合法动作掩码
+  // Legal move mask
   auto legal_actions = LegalActions();
-  //std::fill(values.begin() + ptr, values.begin() + ptr + kNumDistinctActions, 0.0f);
   for (Action a : legal_actions) {
     if (a >= 0 && a < kNumDistinctActions) {
-        MoveId moveid = DecodeAction(a);
-		auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-	  	if ((u1 == 0 && v1 == 0) || (flags & 8)) { //Pass and checking
-			values[ptr + a] = 1.0f;
-		} else {
-			values[ptr + a] = 0.9f;
-			if (flags & 4) values[ptr + a] = 0.01f; // optional
-			if (flags & 2) values[ptr + a] = 0.01f; // branch
-		}
-	}
+      MoveId moveid = DecodeAction(a);
+      auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
+      if ((u1 == 0 && v1 == 0) || (flags & 8)) { //Pass and checking
+        values[ptr + a] = 1.0f;
+      } else {
+        values[ptr + a] = 0.9f;
+        if (flags & 4) values[ptr + a] = 0.01f; // optional
+        if (flags & 2) values[ptr + a] = 0.01f; // branch
+      }
+    }
   }
   ptr += kNumDistinctActions;
 
-  // 5. 棋盘数据（按 all_boards_ 顺序连续写入）
+  // Board data
   int board_base = ptr;
   local_idx = 0;
   for (const auto& [bid, bitboards] : all_boards_) {
@@ -332,8 +320,8 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     local_idx++;
   }
   ptr += total_boards * kNumPieceChannels * kBoardSize * kBoardSize;
-  
-  // 2. 边索引（局部ID）
+
+  // Edge indices
   int edge_fill = 0;
   for (const auto& [src_bid, dst_bid] : boards_edges_) {
     if (edge_fill >= kMaxRuntimeEdges) break;
@@ -348,38 +336,30 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   return;
 }
 
-// ==================== DoApplyAction ====================
 void FiveDChessState::DoApplyAction(Action action) {
   SPIEL_CHECK_TRUE(!IsTerminal());
   SPIEL_CHECK_GE(action, 0);
   SPIEL_CHECK_LT(action, game_->NumDistinctActions());
 
-  // 解码成核心moveid
   MoveId core_moveid = DecodeAction(action);
   SPIEL_CHECK_NE(core_moveid, kInvalidMoveId);
 
-  // 解码走法参数
   auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(core_moveid);
 
-  // 执行走法
   full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
   piece_t pto((piece_t)("QNRB"[promotion]));
   history_moves_list_.push_back(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
   if (is_first_real_selfplay_game_)
-	std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ <<":" << flags << pto << "}"
+    std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ << ":" << flags << pto << "}"
               << history_moves_list_.back() << std::endl;
   bool success = s->apply_move(fm, pto);
   SPIEL_CHECK_TRUE(success);
 
-  // 检查大回合是否结束
   if (s->big_round_over()) {
-    // 更新游戏状态
-	bool submit_success = s->submit();
+    bool submit_success = s->submit();
     SPIEL_CHECK_TRUE(submit_success);
-
   }
-  
-  // 更新游戏观察信息
+
   auto [t, c] = s->get_present();
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
@@ -390,25 +370,25 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   // check out of range
   auto it = std::max_element(operable_boards_.cbegin(), operable_boards_.cend(),
-	[](const auto& a, const auto& b) {return a.second.size() < b.second.size();});
+      [](const auto& a, const auto& b) { return a.second.size() < b.second.size(); });
   if (it->second.size() > kMaxMovesPerBoard ||
-	  all_boards_.size() > kMaxRuntimeBoards ||
-	  operable_boards_.size() > kMaxOperableBoards ||
-	  boards_edges_.size() > kMaxRuntimeEdges) {
-	ms = match_status_t::STALEMATE;
+      all_boards_.size() > kMaxRuntimeBoards ||
+      operable_boards_.size() > kMaxOperableBoards ||
+      boards_edges_.size() > kMaxRuntimeEdges) {
+    ms = match_status_t::STALEMATE;
 	if (is_first_real_selfplay_game_) std::cout << "max_board_mvs_cnt=" << it->second.size()
 			<< ",all_boards=" << all_boards_.size()
 			<< ",operable_boards=" << operable_boards_.size()
 			<< ",boards_edges=" << boards_edges_.size()
 			<< ",force ms=" << ms << std::endl;
-	return;
+    return;
   }
 
   if (current_player_ != c) {
-      current_player_ = c;
-	  if (!current_player_) {
-		current_big_round_++;
-	  }
+    current_player_ = c;
+    if (!current_player_) {
+      current_big_round_++;
+    }
   }
   num_moves_++;
 }

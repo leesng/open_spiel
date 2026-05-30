@@ -262,10 +262,10 @@ std::vector<torch::Tensor> MLPOutputBlockImpl::forward(torch::Tensor x,
   return {value_output, policy_logits};
 }
 
-// ==================== Optimized AlphaGateau Hierarchical Implementation ====================
+// ==================== AlphaGateau Hierarchical Implementation ====================
 AGHBoardEncoderImpl::AGHBoardEncoderImpl(int embedding_dim)
   : embedding_dim_(embedding_dim) {
-  // Adapt to 11?? input channels
+  // Adapt network for 12 input channels of board bitboard
   conv1_ = register_module("agh_conv1",
       torch::nn::Conv2d(torch::nn::Conv2dOptions(kBoardInputChannels, embedding_dim, 3).padding(1)));
   conv2_ = register_module("agh_conv2",
@@ -299,35 +299,32 @@ torch::Tensor AGHGATEAUImpl::forward(torch::Tensor nodes, torch::Tensor edge_ind
   torch::Tensor attn_logits = leaky_relu_->forward(attn_lin_->forward(edge_feat));
   
   // Numerically stable segmented softmax (optimized for large node counts)
-  // 1. 节点缓冲区 [N, D]
+  // 1. Node feature buffer [N, D]
   torch::Tensor max_buffer = torch::zeros_like(nodes);
-  // 拿到特征维度 D
+  // Get feature dimension D
   int64_t feat_dim = max_buffer.size(1);
 
-  // 2. 【业界标准】边注意力统一压平为纯一维 [E]
+  // 2. Flatten edge attention logits to 1D array [E]
   torch::Tensor attn_e = attn_logits.flatten();
 
-  // 3. 【C++必写】手动扩维对齐：[E] → [E, D]
-  // Python会自动广播，C++ Debug 禁止，必须手写
+  // 3. Explicit dimension expansion for C++ compatibility (avoid implicit broadcast)
   attn_e = attn_e.unsqueeze(1).expand({-1, feat_dim});
 
-  // 4. 索引强制 long 类型，杜绝断言
+  // 4. Cast index to long type to prevent assertion failure
   torch::Tensor dst_long = dst.to(torch::kLong);
 
-  // 5. 形状、类型完全合法，安全调用
+  // 5. Safe index addition
   max_buffer.index_add_(0, dst_long, attn_e);
 
-  // 6. 后续逻辑完全不变
+  // 6. Standard softmax calculation
   torch::Tensor max_logits = max_buffer.index({dst_long});
 
   attn_logits = attn_logits - max_logits;
   torch::Tensor exp_attn = torch::exp(attn_logits);
-  //torch::Tensor sum_exp = torch::empty_like(nodes).index_add_(0, dst, exp_attn).index({dst});
   torch::Tensor sum_exp = torch::zeros_like(nodes).index_add_(0, dst_long, exp_attn).index({dst_long});
   torch::Tensor attn_weights = exp_attn / (sum_exp + 1e-8);
 
-  // Message aggregation
-  //return torch::empty_like(nodes).index_add_(0, dst, sent_nodes * attn_weights);
+  // Message aggregation across graph edges
   return torch::zeros_like(nodes).index_add_(0, dst_long, sent_nodes * attn_weights);
 }
 
@@ -336,11 +333,11 @@ AGHHierarchicalHeadImpl::AGHHierarchicalHeadImpl(int embedding_dim) {
   board_selector_head_ = register_module("agh_board_sel", torch::nn::Linear(embedding_dim, 1));
   move_selector_head_ = register_module("agh_move_sel", torch::nn::Linear(embedding_dim, kMaxMovesPerBoard));
 
-  // 【只需要加这一行】4头注意力，计算量可以忽略不计
+  // 4-head cross-board multi-head attention
   cross_board_attn_ = register_module("agh_cross_attn", 
       torch::nn::MultiheadAttention(torch::nn::MultiheadAttentionOptions(embedding_dim, 4)));
 	  
-  // 在AGHHierarchicalHeadImpl的构造函数里添加
+  // Register learnable bias for non-branching boards
   non_branch_bias_ = register_parameter("non_branch_bias", torch::tensor(5.0f));
 }
 
@@ -361,22 +358,22 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   auto move_priorities_2d = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard});
   auto move_priorities = move_priorities_2d.narrow(0, 0, num_operable_boards);
 
-  // =============== 【核心新增：完美利用游戏层传递的信息】 ===============
-  // 1. 解析游戏层的棋盘索引编码
+  // =============== Utilize board index information passed from game logic ===============
+  // 1. Parse encoded board indices from game side
   torch::Tensor valid_board_mask = operable_board_indices != -1;
   torch::Tensor has_non_branch_mask = operable_board_indices >= kMaxRuntimeBoards;
 
-  // 2. 还原真实的棋盘局部ID（用于提取特征）
+  // 2. Restore real local board ID for feature lookup
   torch::Tensor real_board_indices = torch::where(
       has_non_branch_mask,
       operable_board_indices - kMaxRuntimeBoards,
       operable_board_indices
   ).to(torch::kLong);
 
-  // 【修复】把无效棋盘的索引-1替换成0，防止索引越界
+  // Prevent out-of-bounds access by replacing invalid index -1 with 0
   real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
 
-  // 3. 提取特征（用还原后的真实ID）
+  // 3. Extract features of operable boards
   torch::Tensor operable_node_features = all_node_features.index({real_board_indices});
   // =======================================================================
 
@@ -386,26 +383,18 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   torch::Tensor attn_output = std::get<0>(attn_result);
   operable_node_features = attn_output.squeeze(1) + operable_node_features;
 
-  // ============ 关键改动：彻底删除棋盘级先验压制 =============
-  // 每个棋盘都同时有分支/非分支，棋盘层级无法区分，直接放弃 board_priorities
+  // Remove original board priority suppression logic
   torch::Tensor operable_board_logits = board_selector_head_->forward(operable_node_features).squeeze(-1);
 
-  // =============== 【核心新增：利用游戏层信息调整logits】 ===============
-  // 1. 彻底屏蔽无效棋盘（索引=-1）
+  // =============== Adjust logits based on game state information ===============
+  // 1. Mask out invalid boards (index = -1) completely
   operable_board_logits = torch::where(
       valid_board_mask,
       operable_board_logits,
       -1e20 * torch::ones_like(operable_board_logits)
   );
 
-  // 2. 给有非分支走法的棋盘加一个强偏置，大幅提升选中概率
-  // 这个值可以根据训练效果调整，建议从5.0开始
-  /*operable_board_logits = torch::where(
-      has_non_branch_mask,
-      operable_board_logits + 5.0f,
-      operable_board_logits
-  );*/
-  // 在forward函数里使用
+  // 2. Add learnable bias to boards with non-branching moves to increase selection priority
   operable_board_logits = torch::where(
     has_non_branch_mask,
     operable_board_logits + non_branch_bias_,
@@ -413,14 +402,13 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   );
   // =======================================================================
 
-  // Move selection：暴力硬压分支，不靠log比例
+  // Move selection: Suppress branching moves by priority value
   torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
 
-  // ============ 核心强压制：分支0.01 直接扣大分，非分支0.95几乎不扣分 ============
-  // 原理：priority越低，直接减掉巨大数值，强行拉开差距
+  // Strong suppression: Deduct large value for low-priority branching moves
   operable_move_logits = operable_move_logits - 100.0f * (1.0f - move_priorities);
 
-  // 双重软剪枝（进一步收窄到10，只留最优）
+  // Double soft pruning: Keep only top candidates
   float max_board_logit = operable_board_logits.max().item<float>();
   operable_board_logits = torch::where(
       operable_board_logits > max_board_logit - 5.0f,
@@ -435,15 +423,15 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       -1e9 * torch::ones_like(operable_move_logits)
   );
 
-  // Fill valid logits into fixed-shape tensors
+  // Fill calculated logits into fixed-size tensor
   full_board_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_board_logits);
   full_move_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_move_logits);
 
-  // Final probability distributions
+  // Final probability distribution calculation
   torch::Tensor board_probs = torch::softmax(full_board_logits, -1);
   torch::Tensor move_probs = torch::softmax(full_move_logits, -1);
 
-  // Combine into fixed-dimension policy vector
+  // Combine to fixed-dimension policy vector
   torch::Tensor final_policy = board_probs.unsqueeze(1) * move_probs;
   final_policy = final_policy.flatten().unsqueeze(0);
 
@@ -515,7 +503,7 @@ ModelImpl::ModelImpl(const ModelConfig& config, const std::string& device)
     register_module("layers", layers_);
 
   } else if (config.nn_model == "gateau") {
-    // Initialize hierarchical model
+    // Initialize hierarchical GNN model
     ag_hier_encoder_ = register_module("agh_encoder", AGHBoardEncoder(kEmbeddingDim));
     ag_hier_gateau_ = register_module("agh_gateau", AGHGATEAU(kEmbeddingDim));
     ag_hier_output_ = register_module("agh_output", AGHHierarchicalHead(kEmbeddingDim));
@@ -528,29 +516,28 @@ ModelImpl::ModelImpl(const ModelConfig& config, const std::string& device)
 std::vector<torch::Tensor> ModelImpl::forward(torch::Tensor x, torch::Tensor mask) {
   std::vector<torch::Tensor> output = this->forward_(x, mask);
   
-  // 【和vpnet.cc完全对齐的最终校验】
+  // Validate output shape to match vpnet.cc requirements
   torch::Tensor value = output[0];
   torch::Tensor policy_logits = output[1];
   
-  // vpnet.cc要求：value必须是2维 [batch_size, 1]
+  // vpnet.cc requirement: Value tensor must be 2D [batch_size, 1]
   TORCH_CHECK(value.dim() == 2, "Value must be 2D [batch_size, 1], got ", value.dim(), "D");
   TORCH_CHECK(value.size(1) == 1, "Value must have 1 channel, got ", value.size(1));
-  // vpnet.cc要求：policy必须是2维 [batch_size, num_actions]
+  // vpnet.cc requirement: Policy tensor must be 2D [batch_size, num_actions]
   TORCH_CHECK(policy_logits.dim() == 2, "Policy must be 2D [batch_size, num_actions], got ", policy_logits.dim(), "D");
 
-  // 【修复1】区分模型类型处理
+  // Handle softmax for different model types
   torch::Tensor policy_probs;
   if (this->nn_model_ == "gateau") {
-    // Gateau模型在HierarchicalHead里已经做了softmax，直接用概率
+    // Gateau model already applies softmax in head layer, use probabilities directly
     policy_probs = policy_logits;
   } else {
-    // ResNet/MLP模型返回的是logits，需要做softmax
+    // ResNet/MLP return logits, apply softmax externally
     policy_probs = torch::softmax(policy_logits, -1);
   }
   
-  // 【核心修复2】强制归一化，100%确保概率和严格等于1
+  // Force normalization to ensure sum of probabilities equals 1
   torch::Tensor sum_probs = policy_probs.sum(-1, true);
-  // clamp_min防止极端情况下除以0
   policy_probs = policy_probs / sum_probs.clamp_min(1e-8);
   
   return {value, policy_probs};
@@ -565,7 +552,7 @@ std::vector<torch::Tensor> ModelImpl::losses(torch::Tensor inputs,
   torch::Tensor value_predictions = output[0];
   torch::Tensor policy_predictions = output[1];
 
-  // 【修复2】和vpnet.cc要求对齐：value必须是2维 [batch_size, 1]，squeeze成1维给loss用
+  // Adjust shape for loss calculation (2D -> 1D)
   if (value_predictions.dim() == 2) {
     value_predictions = value_predictions.squeeze(-1);
   }
@@ -623,73 +610,68 @@ std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor ma
     output = layers_[num_torso_blocks_ + 1]->as<MLPOutputBlockImpl>()
         ->forward(x, mask);
   } else if (this->nn_model_ == "gateau") {
-    // ==================== 【修复3】恢复原有GNN逻辑，同时保证输出形状正确 ====================
+    // Restore original GNN forward logic and keep output shape compliance
     int64_t batch_size = x.size(0);
     TORCH_CHECK(batch_size == 1, "gateau only supports batch size 1, got ", batch_size);
 
     torch::Tensor obs_flat = x.flatten();
 
-    // 1. 读元数据
+    // 1. Parse metadata from observation tensor
     int total_boards   = (int)obs_flat[0].item<float>();
     int num_operable   = (int)obs_flat[1].item<float>();
     int num_edges      = (int)obs_flat[2].item<float>();
 
-    // 2. 各段偏移
-    int64_t oper_offset    = 4;//edge_offset + 2 * kMaxRuntimeEdges;
+    // 2. Memory offset definition for observation segments
+    int64_t oper_offset    = 4;
     int64_t mask_offset    = oper_offset + kMaxOperableBoards;
     int64_t boards_offset  = 4 + kMaxOperableBoards + kFixedPolicyDim;
 	int64_t edges_offset    = boards_offset + total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;;
 
-    // 4. 可操作棋盘索引
+    // 4. Extract operable board indices
     torch::Tensor operable_board_indices = obs_flat.index({torch::indexing::Slice(oper_offset, oper_offset + num_operable)});
     operable_board_indices = operable_board_indices.to(torch::kLong);
 
-    // 5. 掩码
+    // 5. Extract legal move mask
     torch::Tensor legal_move_mask = obs_flat.index({
       torch::indexing::Slice(mask_offset, mask_offset + kFixedPolicyDim)
     });
-    //legal_move_mask = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard}).to(torch::kBool);
 	legal_move_mask = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard}).to(torch::kFloat32);
 
-    // 6. 棋盘数据（只取有效部分）
+    // 6. Extract raw board data (only valid part)
     int64_t valid_board_size = total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;
     torch::Tensor boards = obs_flat.index({
       torch::indexing::Slice(boards_offset, boards_offset + valid_board_size)
     });
     boards = boards.view({total_boards, kBoardInputChannels, kBoardHeight, kBoardWidth});
 
-    // 3. 边索引
+    // 3. Extract graph edge index
     torch::Tensor edge_index = obs_flat.index({torch::indexing::Slice(edges_offset, edges_offset + 2 * num_edges)});
     edge_index = edge_index.view({2, -1}).to(torch::kLong);
 
-    // 7. Board encoding: generate node embeddings for all boards
+    // 7. Board encoding: Generate embedding for all boards
     torch::Tensor node_features = ag_hier_encoder_->forward(boards);
     // Output shape: [total_boards, kEmbeddingDim]
 
-    // 8. GNN graph convolution (with residual connection)
+    // 8. GNN graph convolution with residual connection
     node_features = node_features + ag_hier_gateau_->forward(node_features, edge_index);
 
-    // 9. Global pooling to generate position feature
+    // 9. Global pooling for overall game state feature
     torch::Tensor global_feature = node_features.mean(0);
     global_feature = global_feature.view({1, kEmbeddingDim});
 
-    // 10. Hierarchical head forward pass
+    // 10. Forward pass of hierarchical output head
     auto head_output = ag_hier_output_->forward(
         node_features, global_feature, operable_board_indices, legal_move_mask, num_operable);
     torch::Tensor value = head_output[0];
     torch::Tensor final_policy = head_output[1];
 
-    // ==================== 【终极锁死】和vpnet.cc要求100%匹配 ====================
-    // Value已经是2维 [1, 1]，不需要处理
-    // Policy已经是2维 [1, kFixedPolicyDim]，不需要处理
-
-    // 最终校验，源头杜绝错误
+    // Enforce output shape to match vpnet.cc requirements
     TORCH_CHECK(value.dim() == 2 && value.size(1) == 1, 
       "Value final shape must be [batch_size, 1], got ", value.sizes());
     TORCH_CHECK(final_policy.dim() == 2 && final_policy.size(1) == kFixedPolicyDim, 
       "Policy final shape must be [batch_size, ", kFixedPolicyDim, "], got ", final_policy.sizes());
 
-    // 最终输出
+    // Final output
     output = {value, final_policy};
   } else {
     TORCH_CHECK(false, "Unknown nn_model: ", this->nn_model_);

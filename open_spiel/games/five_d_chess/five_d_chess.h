@@ -20,37 +20,40 @@ using BoardId = int;
 using MoveId = uint64_t;
 using TensorIndex = int;
 
-// ==================== 全局常量定义（最终版） ====================
+// ==================== Global Constant Definitions ====================
+// Bit width definition for encoding
 constexpr int kTotalBoardNumBits = 11;
 constexpr int kOperableBoardNumBits = 7;
 constexpr int kMoveNumPerBoardBits = 8;
 
-constexpr int kNumDistinctActions = 1 << (kOperableBoardNumBits + kMoveNumPerBoardBits); // 总走法数量32768（和模型完全对齐）
-constexpr int kMaxMovesPerBoard = 1 << kMoveNumPerBoardBits; // 256 每个棋盘最大走法数量
+constexpr int kNumDistinctActions = 1 << (kOperableBoardNumBits + kMoveNumPerBoardBits); // Total action count (32768, aligned with model)
+constexpr int kMaxMovesPerBoard = 1 << kMoveNumPerBoardBits; // Maximum moves per single board (256)
 
-constexpr int kMaxOperableBoards = 1 << kOperableBoardNumBits;       // 最大可操作棋盘数 128
-constexpr int kMaxRuntimeBoards = 1 << kTotalBoardNumBits;    // 运行时最大活跃棋盘数，1024 
-constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2; // 运行时最大边数
+constexpr int kMaxOperableBoards = 1 << kOperableBoardNumBits;       // Maximum operable boards (128)
+constexpr int kMaxRuntimeBoards = 1 << kTotalBoardNumBits;    // Maximum active boards during runtime (1024)
+constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2; // Maximum graph edges during runtime
 
-constexpr int kNumPieceChannels = 12;         // 棋子通道数（12个bit平面）
-constexpr int kBoardSize = 8;                 // 棋盘大小 8x8
+constexpr int kNumPieceChannels = 12;         // Total bitboard channels for chess pieces
+constexpr int kBoardSize = 8;                 // Standard chess board size (8x8)
 
+// Fixed header size of observation tensor
 constexpr int kFixedHeaderSize =
-    4                                           // 元数据：total_boards, num_operable, num_edges, 保留
-    + kMaxOperableBoards                        // 可操作棋盘索引
-    + kNumDistinctActions;                      // 合法走法掩码（32768位）
+    4                                           // Metadata: total_boards, num_operable, num_edges, reserved
+    + kMaxOperableBoards                        // Operable board index list
+    + kNumDistinctActions;                      // Legal move mask array
 
+// Total size of full observation tensor
 constexpr int kObservationTensorSize =
     kFixedHeaderSize
     + kMaxRuntimeBoards * kNumPieceChannels * kBoardSize * kBoardSize
-	+ 2 * kMaxRuntimeEdges;                      // 边索引
+	+ 2 * kMaxRuntimeEdges;                      // Graph edge index pairs
 
-constexpr int kMaxGameLength = kMaxRuntimeBoards;          // 最大游戏长度
-constexpr Action kInvalidAction = -1;         // 无效动作标识
-constexpr MoveId kInvalidMoveId = -1;         // 无效走法标识
+constexpr int kMaxGameLength = kMaxRuntimeBoards;          // Maximum allowed game steps
+constexpr Action kInvalidAction = -1;         // Mark for invalid action
+constexpr MoveId kInvalidMoveId = -1;         // Mark for invalid move id
 
-// =========================基础工具函数==============================
-
+// ========================= Utility Functions ==============================
+// Convert move string list to formatted output string
 constexpr static std::string move_list_to_string(std::vector<std::string> str_list) {
 	std::string prefix_prev;
 	std::string all_move_str;
@@ -83,17 +86,18 @@ constexpr static std::string move_list_to_string(std::vector<std::string> str_li
 	return all_move_str;
 }
 
-//================================ 框架类型定义=================================
-// 前向声明你的引擎类
+//================================ Framework Type Forward Declaration =================================
+// Forward declaration of core engine state class
 class state;
 
+// Game state implementation for 5D Chess
 class FiveDChessState : public State {
  public:
   explicit FiveDChessState(std::shared_ptr<const Game> game);
   FiveDChessState(const FiveDChessState& other);
   ~FiveDChessState() override;
 
-  // OpenSpiel 强制接口
+  // Mandatory OpenSpiel interface
   Player CurrentPlayer() const override;
   std::vector<Action> LegalActions() const override;
   std::string ActionToString(Player player, Action action) const override;
@@ -107,24 +111,24 @@ class FiveDChessState : public State {
   void ObservationTensor(Player player, absl::Span<float> values) const override;
 
  private:
-  // OpenSpiel 内部调用的走子接口
+  // Internal move execution interface of OpenSpiel
   void DoApplyAction(Action action) override;
 
-  // 动作编解码（最终版）
+  // Action / MoveId encoding & decoding logic
   Action EncodeAction(MoveId moveid) const;
   MoveId DecodeAction(Action action) const;
 
-  // 棋盘张量索引映射（全局唯一，GNN用，完全不动）
+  // Map global board ID to continuous tensor index for GNN
   TensorIndex GetTensorIndexForBoard(BoardId board_id) const;
 
-  // 游戏状态
+  // Game runtime status
   bool is_first_real_selfplay_game_;
   Player current_player_;
   int num_moves_;
   int current_big_round_;
-  std::unordered_set<BoardId> operated_boards_;  // 存储全局BoardId
+  std::unordered_set<BoardId> operated_boards_;  // Record all operated global board IDs
 
-  // 引擎数据（直接使用，类型与引擎一致）
+  // Core game engine data (aligned with native engine type)
     const std::string init_str = R"(
 [Board "Standard - Turn Zero"]
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
@@ -137,18 +141,18 @@ class FiveDChessState : public State {
    std::vector<std::pair<BoardId, std::vector<uint64_t>>> all_boards_;
    std::vector<std::pair<BoardId, std::vector<MoveId>>> operable_boards_;
    std::vector<std::pair<BoardId, BoardId>> boards_edges_;
-   // 新增：Action -> MoveId 缓存映射
-   //mutable std::unordered_map<Action, MoveId> action_to_moveid_cache_;
+   // Earliest board ID that contains non-branching moves
    BoardId earliest_non_branch_boardid_;
-   std::vector<std::string> history_moves_list_; //for debug
+   std::vector<std::string> history_moves_list_; // Move history for debug
    
 };
 
+// Game class definition for 5D Chess
 class FiveDChessGame : public Game {
  public:
   explicit FiveDChessGame(const GameParameters& params);
 
-  // OpenSpiel 强制接口
+  // Mandatory OpenSpiel interface
   int NumDistinctActions() const override;
   std::unique_ptr<State> NewInitialState() const override;
   int MaxChanceOutcomes() const override;

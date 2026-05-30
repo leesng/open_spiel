@@ -25,16 +25,16 @@ namespace open_spiel {
 namespace algorithms {
 namespace torch_az {
 
-// ==================== Optimized Fixed Hyperparameters ====================
-constexpr int kBoardInputChannels = 12;    // Bitboard dimensions: 12
+// ====================  Fixed Hyperparameters ====================
+constexpr int kBoardInputChannels = 12;    // Bitboard input channels
 constexpr int kBoardHeight = 8;
 constexpr int kBoardWidth = 8;
-constexpr int kMaxMovesPerBoard = 256;     // Maximum number of moves per single board
-constexpr int kMaxOperableBoards = 128;     // Maximum number of operable boards (our side)
-constexpr int kFixedPolicyDim = kMaxOperableBoards * kMaxMovesPerBoard; // Fixed policy dimension: 32768
-constexpr int kEmbeddingDim = 128;          // Node embedding dimension
+constexpr int kMaxMovesPerBoard = 256;     // Maximum legal moves for a single board
+constexpr int kMaxOperableBoards = 128;    // Maximum number of operable game boards
+constexpr int kFixedPolicyDim = kMaxOperableBoards * kMaxMovesPerBoard; // Fixed policy output dimension (32768)
+constexpr int kEmbeddingDim = 128;         // Node feature embedding dimension
 
-constexpr int kMaxRuntimeBoards = 1 << 11; // 2048;
+constexpr int kMaxRuntimeBoards = 1 << 11; // Maximum active boards during runtime (2048)
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
 	
 // ========================================================================
@@ -193,8 +193,8 @@ class MLPOutputBlockImpl : public torch::nn::Module {
 };
 TORCH_MODULE(MLPOutputBlock);
 
-// ==================== Optimized AlphaGateau Hierarchical Modules ====================
-// Board Node Encoder: Encodes an 11?? board into a 128-dimensional node embedding
+// ====================  AlphaGateau Hierarchical Modules ====================
+// Board Node Encoder: Encode raw board input to 128-dimensional node embedding
 class AGHBoardEncoderImpl : public torch::nn::Module {
  public:
   explicit AGHBoardEncoderImpl(int embedding_dim);
@@ -207,7 +207,7 @@ class AGHBoardEncoderImpl : public torch::nn::Module {
 };
 TORCH_MODULE(AGHBoardEncoder);
 
-// GATEAU Graph Attention Layer: Optimized for spatiotemporal graphs with up to 65536 nodes
+// GATEAU Graph Attention Layer: Optimized for spatiotemporal graph with up to 65536 nodes
 class AGHGATEAUImpl : public torch::nn::Module {
  public:
   explicit AGHGATEAUImpl(int embedding_dim);
@@ -220,23 +220,23 @@ class AGHGATEAUImpl : public torch::nn::Module {
 };
 TORCH_MODULE(AGHGATEAU);
 
-// Hierarchical Output Head: Fixed policy dimension of 32768, decoupled from total board count
+// Hierarchical Output Head: Fixed policy dimension (32768), decoupled from actual board count
 class AGHHierarchicalHeadImpl : public torch::nn::Module {
  public:
   AGHHierarchicalHeadImpl(int embedding_dim);
   std::vector<torch::Tensor> forward(
     torch::Tensor all_node_features,
     torch::Tensor global_feature,
-    torch::Tensor operable_board_indices,  // Indices of operable boards in the full node list [kMaxOperableBoards]
+    torch::Tensor operable_board_indices,  // Indices of operable boards in full node list [kMaxOperableBoards]
     torch::Tensor legal_move_mask,        // Legal move mask [kMaxOperableBoards, kMaxMovesPerBoard]
     int num_operable_boards               // Current actual number of operable boards
   );
  private:
-  torch::nn::MultiheadAttention cross_board_attn_ = nullptr; // 新增
+  torch::nn::MultiheadAttention cross_board_attn_ = nullptr; // Cross-board multi-head attention
   torch::nn::Linear value_head_ = nullptr;
   torch::nn::Linear board_selector_head_ = nullptr;
   torch::nn::Linear move_selector_head_ = nullptr;
-    // 【新增这一行】可学习的非分支棋盘偏置
+  // Learnable bias for non-branching boards
   torch::Tensor non_branch_bias_;
 };
 TORCH_MODULE(AGHHierarchicalHead);
@@ -256,7 +256,7 @@ class ModelImpl : public torch::nn::Module {
   std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask);
   torch::nn::ModuleList layers_;
 
-  // AlphaGateau Hierarchical submodules
+  // AlphaGateau hierarchical sub-modules
   AGHBoardEncoder ag_hier_encoder_ = nullptr;
   AGHGATEAU ag_hier_gateau_ = nullptr;
   AGHHierarchicalHead ag_hier_output_ = nullptr;
