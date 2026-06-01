@@ -391,6 +391,11 @@ void FiveDChessState::DoApplyAction(Action action) {
     }
   }
   num_moves_++;
+  if (num_moves_ >= kMaxGameLength) {
+	ms = match_status_t::STALEMATE;
+	if (is_first_real_selfplay_game_) std::cout << "num_moves_=" << num_moves_
+		<< ",force2 ms=" << ms << std::endl;
+  }
 }
 
 }  // namespace five_d_chess
