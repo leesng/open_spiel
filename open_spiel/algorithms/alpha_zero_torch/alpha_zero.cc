@@ -25,6 +25,56 @@
 #include <utility>
 #include <vector>
 
+#include <atomic>
+#include <malloc.h>
+constexpr int MEM_TRIM_GAME_INTERVAL = 10;
+std::atomic<int> g_last_trim_game(0);
+// ==================== RSS (Windows/Linux) ====================
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
+
+#undef GetObject
+#undef GetMessage
+#undef CreateWindow
+#undef DeleteFile
+#undef MoveFile
+#undef CopyFile
+#undef LoadLibrary
+#undef FreeLibrary
+#undef GetModuleFileName
+#else
+#include <fstream>
+#include <string>
+#endif
+
+int GetProcessRSS() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), 
+        reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc))) {
+        return static_cast<int>(pmc.PrivateUsage / 1024);
+    }
+    return 0;
+#else
+    std::string line;
+    int rss_kb = 0;
+    std::ifstream status_file("/proc/self/status");
+    
+    if (status_file.is_open()) {
+        while (std::getline(status_file, line)) {
+            if (line.compare(0, 6, "VmRSS:") == 0) {
+                sscanf(line.c_str(), "VmRSS: %d", &rss_kb);
+                break;
+            }
+        }
+    }
+    return rss_kb;
+#endif
+}
+
 #include "open_spiel/abseil-cpp/absl/algorithm/container.h"
 #include "open_spiel/abseil-cpp/absl/random/uniform_real_distribution.h"
 #include "open_spiel/abseil-cpp/absl/strings/str_cat.h"
@@ -110,6 +160,9 @@ Trajectory PlayGame(Logger* logger, int game_num, const open_spiel::Game& game,
                     std::vector<std::unique_ptr<MCTSBot>>* bots,
                     std::mt19937* rng, double temperature, int temperature_drop,
                     double cutoff_value, bool verbose = false) {
+
+  int mem_start = GetProcessRSS();
+
   std::unique_ptr<open_spiel::State> state = game.NewInitialState();
   std::vector<std::string> history;
   Trajectory trajectory;
@@ -163,6 +216,12 @@ Trajectory PlayGame(Logger* logger, int game_num, const open_spiel::Game& game,
   logger->Print("Game %d: Returns: %s; Actions: %s", game_num,
                 absl::StrJoin(trajectory.returns, " "),
                 absl::StrJoin(history, " "));
+
+  int mem_end = GetProcessRSS();
+  int mem_delta = mem_end - mem_start;
+  printf("[MEM] Game %d | Start: %d KB | End: %d KB | Delta: %d KB\n",
+      game_num, mem_start, mem_end, mem_delta);
+
   return trajectory;
 }
 
@@ -193,12 +252,15 @@ void actor(const open_spiel::Game& game, const AlphaZeroConfig& config, int num,
   }
   std::mt19937 rng(absl::ToUnixNanos(absl::Now()));
   absl::uniform_real_distribution<double> dist(0.0, 1.0);
-  std::vector<std::unique_ptr<MCTSBot>> bots;
-  bots.reserve(2);
-  for (int player = 0; player < 2; player++) {
-    bots.push_back(InitAZBot(config, game, vp_eval, false));
-  }
+
   for (int game_num = 1; !stop->StopRequested(); ++game_num) {
+	// only use it once
+    std::vector<std::unique_ptr<MCTSBot>> bots;
+    bots.reserve(2);
+    for (int player = 0; player < 2; player++) {
+      bots.push_back(InitAZBot(config, game, vp_eval, false));
+    }
+
     double cutoff =
         (dist(rng) < config.cutoff_probability ? config.cutoff_value
                                                : game.MaxUtility() + 1);
@@ -208,6 +270,20 @@ void actor(const open_spiel::Game& game, const AlphaZeroConfig& config, int num,
             absl::Seconds(10))) {
       logger->Print("Failed to push a trajectory after 10 seconds.");
     }
+
+	// free mem
+	vp_eval->ClearCache();
+
+    int expected = g_last_trim_game.load();
+    if (game_num % MEM_TRIM_GAME_INTERVAL == 0 && game_num > expected) {
+      if (g_last_trim_game.compare_exchange_strong(expected, game_num)) {
+  #ifdef __linux__
+        malloc_trim(0);
+        printf("[MEM] Global trim completed at game %d\n", game_num);
+  #endif
+      }
+    }
+
   }
   logger->Print("Got a quit.");
 }
@@ -297,6 +373,16 @@ void evaluator(const open_spiel::Game& game, const AlphaZeroConfig& config,
                  game_num, trajectory.returns[az_player],
                  trajectory.returns[1 - az_player], rand_max_simulations,
                  trajectory.states.size());
+
+    int expected = g_last_trim_game.load();
+    if (game_num % MEM_TRIM_GAME_INTERVAL == 0 && game_num > expected) {
+      if (g_last_trim_game.compare_exchange_strong(expected, game_num)) {
+#ifdef __linux__
+        malloc_trim(0);
+        printf("[MEM] Global trim completed at game %d (evaluator)\n", game_num);
+#endif
+      }
+    }
   }
   logger.Print("Got a quit.");
 }
@@ -500,6 +586,10 @@ void learner(const open_spiel::Game& game, const AlphaZeroConfig& config,
 }
 
 bool AlphaZero(AlphaZeroConfig config, StopToken* stop, bool resuming) {
+#ifdef __linux__
+  setenv("MALLOC_ARENA_MAX", "2", 1);
+  setenv("MALLOC_TRIM_THRESHOLD_", "0", 1);
+#endif
   std::shared_ptr<const open_spiel::Game> game =
       open_spiel::LoadGame(config.game);
 
