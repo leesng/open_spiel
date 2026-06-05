@@ -54,10 +54,15 @@ class SerializableCircularBuffer : public CircularBuffer<T> {
     int max_size;
     deserializer.Read(&max_size);
     if (max_size != this->max_size_) {
-      SpielFatalError(absl::StrFormat("Cannot load data from a buffer with max"
-                                      "size %d into a buffer with max size %d.",
-                                      max_size,
-                                      this->max_size_));
+      //SpielFatalError(absl::StrFormat("Cannot load data from a buffer with max"
+      //                                "size %d into a buffer with max size %d.",
+      //                                max_size,
+      //                                this->max_size_));
+      std::cerr << "[WARNING] Replay buffer size mismatch: old=" << max_size << ", new=" << this->max_size_ << std::endl;
+      std::cerr << "[WARNING] Starting with empty replay buffer" << std::endl;
+      this->data_.clear();
+      this->total_added_ = 0;
+      return;
     }
 
     deserializer.Read(&(this->total_added_));
