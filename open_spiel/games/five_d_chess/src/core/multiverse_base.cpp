@@ -223,10 +223,10 @@ std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec
 	return result;
 }
 
-#define MAKE_BOARD_ID(u,v) ((u) << 8 | (v))
-#define MAKE_MOVE_ID(u0,v0,y0,x0,u1,v1,y1,x1,promote_to,flags) ( \
-(u0) << 44 | (v0) << 36 | (y0) << 33 | (x0) << 30 | (u1) << 22 | (v1) << 14 | (y1) << 11 | (x1) << 8 | \
-(promote_to) << 4 | (flags))  // bit 0 is valid bit; bit 1 is is branching move
+//#define MAKE_BOARD_ID(u,v) ((u) << 8 | (v))
+//#define MAKE_MOVE_ID(u0,v0,y0,x0,u1,v1,y1,x1,promote_to,flags) ( \
+//(u0) << 44 | (v0) << 36 | (y0) << 33 | (x0) << 30 | (u1) << 22 | (v1) << 14 | (y1) << 11 | (x1) << 8 | \
+//(promote_to) << 4 | (flags))  // bit 0 is valid bit; bit 1 is is branching move
 std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
            std::vector<std::pair<int,int>>> multiverse::get_boards_and_edges() const
 {
@@ -245,11 +245,11 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
 				int travel_u = l_to_u(((timeline[v]->contact() >> 24 & 0xFF) ^ 0x80) - 0x80);
 				int travel_v = tc_to_v(((timeline[v]->contact() >> 16 & 0xFF) ^ 0x80) - 0x80, c);
 				if (parent_u > 0 || v - 1 > 0) {
-					boards_edges.push_back(std::make_pair(MAKE_BOARD_ID(u,v), MAKE_BOARD_ID(parent_u, v - 1)));
+					boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(parent_u, v - 1)));
 					//std::cout << "parent==" << u << v << parent_u << v - 1 << std::endl;
 				}
 				if (travel_u > 0 || travel_v > 1) {
-					boards_edges.push_back(std::make_pair(MAKE_BOARD_ID(u,v), MAKE_BOARD_ID(travel_u, travel_v)));
+					boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(travel_u, travel_v)));
 					//std::cout << "travel==" << u << v << travel_u << travel_v << std::endl;
 				}
 				//get board planes
@@ -266,7 +266,7 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
 				board_planes.push_back(timeline[v]->lunicorn());
 				board_planes.push_back(timeline[v]->ldragon());
 				board_planes.push_back(timeline[v]->umove());
-                all_boards.push_back(std::make_pair(MAKE_BOARD_ID(u,v), board_planes));
+                all_boards.push_back(std::make_pair(EncodeBoardId(u,v), board_planes));
 				
             }
         }
@@ -297,7 +297,7 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 		bool cannot_pass_it = (active_min <= l && l <= active_max && v_to_tc(v) == present_tc);
 		bool cannot_submit_it = (COLOR == present_tc.second);
 		if (allow_pass && !cannot_pass_it && !cannot_submit_it) {
-			board_moves.push_back(MAKE_MOVE_ID((uint64_t)u,(uint64_t)v,0,0, 0,0,0,0,0, 1)); // pass valid only in optional-lines
+			board_moves.push_back(EncodeMoveId(u,v,0,0, 0,0,0,0,0, 1)); // pass valid only in optional-lines
 		}
 		// generate all moves
 		bitboard_t b_pieces = boards[u][v]->friendly<COLOR>() & ~boards[u][v]->wall();
@@ -332,10 +332,10 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 					}
 
 					// make move id code
-					uint64_t mid = MAKE_MOVE_ID(
-					(uint64_t)l_to_u(p.l()), (uint64_t)tc_to_v(p.t(), c), (uint64_t)p.y(), (uint64_t)p.x(),
-					(uint64_t)l_to_u(q.l()), (uint64_t)tc_to_v(q.t(), c), (uint64_t)q.y(), (uint64_t)q.x(), 
-					0, (uint64_t)!cannot_pass_it << 2 | (uint64_t)!non_branching << 1 | 1);
+					uint64_t mid = EncodeMoveId(
+					l_to_u(p.l()), tc_to_v(p.t(), c), p.y(), p.x(),
+					l_to_u(q.l()), tc_to_v(q.t(), c), q.y(), q.x(), 
+					0, !cannot_pass_it << 2 | !non_branching << 1 | 1);
 					board_moves.push_back(mid); // promote to QUEEN , default
 					if ((boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
 						board_moves.push_back(mid | 1 << 4); // KNIGHT
@@ -350,7 +350,7 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 		//for (int i = 0; i < static_cast<int>(board_moves.size()); ++i) {
 		//	std::cout << "sorted end mv[" << std::dec << i << "] = 0x" << std::hex << board_moves[i] << std::dec << std::endl;
 		//}
-		operable_boards.push_back(std::make_pair(MAKE_BOARD_ID(u,v), board_moves));
+		operable_boards.push_back(std::make_pair(EncodeBoardId(u,v), board_moves));
 		//////////////////end of getting operted boards and moves///////////////////////////////////
     }
 
