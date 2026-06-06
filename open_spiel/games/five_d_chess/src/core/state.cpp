@@ -970,7 +970,7 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
 
     std::vector<std::pair<int,std::vector<uint64_t>>> operable_boards
                 = player ? m->get_operable_boards_moves<true>(!has_passed) : m->get_operable_boards_moves<false>(!has_passed);
-
+	bool being_checked = phantom().find_checks(!player).first().has_value();
     /*for (auto& outer_pair : operable_boards) {
 		std::cout << "===[" <<outer_pair.first << "]:" << std::endl;
         for (uint64_t& moveid : outer_pair.second) {
@@ -997,6 +997,10 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
                 continue;
             }
 			
+			// added being_checked information
+			if(being_checked) {
+				moveid |= 1ULL << 4;
+			}
 			// added checking information
 			if(get_move_info(fm, pt).checking_opponent) {
 				moveid |= 1ULL << 3;
@@ -1022,7 +1026,7 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
 	if (!operable_boards.empty()) {
 		ms = match_status_t::PLAYING;
 	} else {
-		if (phantom().find_checks(!player).first().has_value()) {
+		if (being_checked /*phantom().find_checks(!player).first().has_value()*/) {
 			ms = player ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
 		} else {
 			ms = match_status_t::STALEMATE;
