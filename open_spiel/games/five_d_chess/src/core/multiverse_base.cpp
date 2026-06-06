@@ -331,16 +331,18 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 						continue;
 					}
 
+					bool is_ptomote_move = (boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1);
 					// make move id code
 					uint64_t mid = EncodeMoveId(
 					l_to_u(p.l()), tc_to_v(p.t(), c), p.y(), p.x(),
 					l_to_u(q.l()), tc_to_v(q.t(), c), q.y(), q.x(), 
-					0, !cannot_pass_it << 2 | !non_branching << 1 | 1);
+					0, is_ptomote_move << 5 | !cannot_pass_it << 2 | !non_branching << 1 | 1);
+					
 					board_moves.push_back(mid); // promote to QUEEN , default
-					if ((boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
-						board_moves.push_back(mid | 1 << 4); // KNIGHT
-						board_moves.push_back(mid | 2 << 4); // ROOK
-						board_moves.push_back(mid | 3 << 4); // BISHOP
+					if (is_ptomote_move /*(boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)*/) {
+						board_moves.push_back(mid | 1 << 8); // KNIGHT
+						board_moves.push_back(mid | 2 << 8); // ROOK
+						board_moves.push_back(mid | 3 << 8); // BISHOP
 					}
 				}
 			}
