@@ -189,13 +189,12 @@ std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec
 	std::shared_ptr<board> new_board = nullptr;
 	std::shared_ptr<board> new_board2 = nullptr;
 	std::vector<std::shared_ptr<board>> result;
-
-	// promotion (only brawns can do)
-	if ((b_ptr->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
-		pic = player ? to_black(pto) : pto;
-	}
 	
 	if (b_ptr == x_ptr) {
+        // promotion to
+        if ((b_ptr->lpawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
+            pic = player ? to_black(pto) : pto;
+        }
 		vec4 d = q - p;
 		if((b_ptr->lpawn() & pmask(p.xy())) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE) {
 			// en passant
@@ -213,6 +212,10 @@ std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec
 		new_board = new_board->replace_piece(q.xy(), pic);
 		result.push_back(new_board);
 	} else  {
+        // promotion (only brawns can do)
+        if ((b_ptr->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
+            pic = player ? to_black(pto) : pto;
+        }
 		// superphysical move
 		new_board = b_ptr->replace_piece(p.xy(), NO_PIECE);
 		new_board2 = x_ptr->replace_piece(q.xy(), pic);
@@ -331,7 +334,9 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 						continue;
 					}
 
-					bool is_ptomote_move = (boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1);
+                    bool is_ptomote_move = (p.l() == q.l() && p.t() == q.t())
+                        ? (boards[u][v]->lpawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)
+                        : (boards[u][v]->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1);
 					// make move id code
 					uint64_t mid = EncodeMoveId(
 					l_to_u(p.l()), tc_to_v(p.t(), c), p.y(), p.x(),

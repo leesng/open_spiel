@@ -178,15 +178,16 @@ std::string FiveDChessState::ActionToString(Player player, Action action) const 
   std::string DesStr("(" + std::to_string(u1) + "," + std::to_string(v1) + "," + std::to_string(y1) + "," + std::to_string(x1) + ")");
   std::string ArrowStr(u0 == u1 && v0 == v1 || 0 == u1 && 0 == v1 ? " -> " : " >> ");
   std::string PassStr(0 == u1 && 0 == v1 ? " [PASS]" : "");
+  std::string BeingCheckedStr(flags & 16 ? " [BEING-CHECKED]" : "");
   std::string ChecksStr(flags & 8 ? " [CHECKING]" : "");
   std::string OptionalStr(flags & 4 ? " [OPTIONAL]" : "");
   std::string BranchStr(flags & 2 ? " [BRANCH]" : "");
-  std::string PromotionStr(prto == 0 ? " = Q" : prto == 1 ? " = N" :
-                             prto == 2 ? " = R" : prto == 3 ? " = B" : "");
+  std::string PromotionStr(!(flags & 32) ? "" : prto == 0 ? " [QUEEN]" : prto == 1 ? " [KNIGHT]" :
+                             prto == 2 ? " [ROOK]" : prto == 3 ? " [BISHOP]" : "");
 
   return absl::StrCat(
       SrcStr + ArrowStr + DesStr + PromotionStr +
-      PassStr + ChecksStr + OptionalStr + BranchStr
+      PassStr + BeingCheckedStr + ChecksStr + OptionalStr + BranchStr
   );
 }
 

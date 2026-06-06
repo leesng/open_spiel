@@ -169,8 +169,18 @@ std::vector<std::pair<int, int>> game::get_current_boards_edges() const
 {
     const state& s = get_current_state();
     auto [all_boards, boards_edges] = s.get_boards_and_edges();
-	//match_status_t ms;
-	//auto operable_boards = s.get_all_board_moves(ms);
+	match_status_t ms;
+	auto operable_boards = s.get_operable_boards_moves_and_match_status(ms);
+
+	for (auto& outer_pair : operable_boards) {
+		std::cout << "[" << outer_pair.first << "]:" << std::endl;
+        for (uint64_t& moveid : outer_pair.second) {
+			auto [u0, v0, y0, x0, u1, v1, y1, x1, pto, flags] = DecodeMoveId(moveid);
+            full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
+			std::cout << fm.to_string() << ((flags & 32) ? "=" + std::string(1, "QNRB"[pto]) : "") << "|" << flags << std::endl;
+		}
+		std::cout << std::endl;
+	}
     return boards_edges;
 }
 
