@@ -160,41 +160,72 @@ constexpr static std::pair<int, bool> v_to_tc(int v)
     return {v >> 1, static_cast<bool>(v & 1)};
 }
 
+/**
+ * @brief Encodes 5D Chess move parameters into a single 64-bit unique move ID
+ * @note Flags field expanded from 4 bits to 8 bits (0-255 value range)
+ * @param u0 Source timeline layer (U axis)
+ * @param v0 Source timeline branch (V axis)
+ * @param y0 Source board Y coordinate
+ * @param x0 Source board X coordinate
+ * @param u1 Destination timeline layer (U axis)
+ * @param v1 Destination timeline branch (V axis)
+ * @param y1 Destination board Y coordinate
+ * @param x1 Destination board X coordinate
+ * @param pto Piece promotion type (4 bits)
+ * @param flags Move status flags (8 bits, expanded)
+ * @return Encoded 64-bit move identifier
+ * 
+ * Bit-field Layout (Total 56 bits used, 8 bits reserved):
+ * [Flags(8bit:0-7) | Pto(4bit:8-11) | X1(3bit:12-14) | Y1(3bit:15-17) | V1(8bit:18-25) | U1(8bit:26-33)]
+ * [X0(3bit:34-36) | Y0(3bit:37-39) | V0(8bit:40-47) | U0(8bit:48-55)]
+ */
 constexpr static uint64_t EncodeMoveId(int u0, int v0, int y0, int x0,
                                      int u1, int v1, int y1, int x1,
                                      int pto, int flags) {
   uint64_t moveid = 0;
   
-  moveid |= (static_cast<uint64_t>(flags) & 0xFULL) << 0;
-  moveid |= (static_cast<uint64_t>(pto) & 0xFULL) << 4;
+  // Move status flags: 8-bit width
+  moveid |= (static_cast<uint64_t>(flags) & 0xFFULL) << 0;
+  // Piece promotion type: 4-bit width
+  moveid |= (static_cast<uint64_t>(pto) & 0xFULL) << 8;
   
-  moveid |= (static_cast<uint64_t>(x1) & 0x7ULL) << 8;
-  moveid |= (static_cast<uint64_t>(y1) & 0x7ULL) << 11;
-  moveid |= (static_cast<uint64_t>(v1) & 0xFFULL) << 14;
-  moveid |= (static_cast<uint64_t>(u1) & 0xFFULL) << 22;
+  // Destination position coordinates
+  moveid |= (static_cast<uint64_t>(x1) & 0x7ULL) << 12;
+  moveid |= (static_cast<uint64_t>(y1) & 0x7ULL) << 15;
+  moveid |= (static_cast<uint64_t>(v1) & 0xFFULL) << 18;
+  moveid |= (static_cast<uint64_t>(u1) & 0xFFULL) << 26;
   
-  moveid |= (static_cast<uint64_t>(x0) & 0x7ULL) << 30;
-  moveid |= (static_cast<uint64_t>(y0) & 0x7ULL) << 33;
-  moveid |= (static_cast<uint64_t>(v0) & 0xFFULL) << 36;
-  moveid |= (static_cast<uint64_t>(u0) & 0xFFULL) << 44;
+  // Source position coordinates
+  moveid |= (static_cast<uint64_t>(x0) & 0x7ULL) << 34;
+  moveid |= (static_cast<uint64_t>(y0) & 0x7ULL) << 37;
+  moveid |= (static_cast<uint64_t>(v0) & 0xFFULL) << 40;
+  moveid |= (static_cast<uint64_t>(u0) & 0xFFULL) << 48;
   
   return moveid;
 }
 
+/**
+ * @brief Decodes a 64-bit move ID back to original 5D Chess move parameters
+ * @param moveid Encoded 64-bit move identifier
+ * @return Tuple of decoded parameters: (u0, v0, y0, x0, u1, v1, y1, x1, pto, flags)
+ */
 constexpr static std::tuple<int, int, int, int, int, int, int, int, int, int> 
 DecodeMoveId(uint64_t moveid) {
-  int u0 = static_cast<int>((moveid >> 44) & 0xFF);
-  int v0 = static_cast<int>((moveid >> 36) & 0xFF);
-  int y0 = static_cast<int>((moveid >> 33) & 0x7);
-  int x0 = static_cast<int>((moveid >> 30) & 0x7);
+  // Decode source position coordinates
+  int u0 = static_cast<int>((moveid >> 48) & 0xFF);
+  int v0 = static_cast<int>((moveid >> 40) & 0xFF);
+  int y0 = static_cast<int>((moveid >> 37) & 0x7);
+  int x0 = static_cast<int>((moveid >> 34) & 0x7);
   
-  int u1 = static_cast<int>((moveid >> 22) & 0xFF);
-  int v1 = static_cast<int>((moveid >> 14) & 0xFF);
-  int y1 = static_cast<int>((moveid >> 11) & 0x7);
-  int x1 = static_cast<int>((moveid >> 8) & 0x7);
+  // Decode destination position coordinates
+  int u1 = static_cast<int>((moveid >> 26) & 0xFF);
+  int v1 = static_cast<int>((moveid >> 18) & 0xFF);
+  int y1 = static_cast<int>((moveid >> 15) & 0x7);
+  int x1 = static_cast<int>((moveid >> 12) & 0x7);
   
-  int pto = static_cast<int>((moveid >> 4) & 0xF);
-  int flags = static_cast<int>((moveid >> 0) & 0xF);
+  // Decode piece promotion type and move status flags
+  int pto = static_cast<int>((moveid >> 8) & 0xF);
+  int flags = static_cast<int>((moveid >> 0) & 0xFF);
   
   return {u0, v0, y0, x0, u1, v1, y1, x1, pto, flags};
 }
