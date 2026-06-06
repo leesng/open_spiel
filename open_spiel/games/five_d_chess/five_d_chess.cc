@@ -290,12 +290,12 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     if (a >= 0 && a < kNumDistinctActions) {
       MoveId moveid = DecodeAction(a);
       auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-      if ((u1 == 0 && v1 == 0) || (flags & 8)) { //Pass and checking
+      if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) { //Pass or checking or being-checked
         values[ptr + a] = 1.0f;
       } else {
         values[ptr + a] = 0.9f;
-        if (flags & 4) values[ptr + a] = 0.01f; // optional
-        if (flags & 2) values[ptr + a] = 0.01f; // branch
+        if (flags & 4) values[ptr + a] *= 0.0001f; // optional
+        if (flags & 2) values[ptr + a] *= 0.0001f; // branch
       }
     }
   }
