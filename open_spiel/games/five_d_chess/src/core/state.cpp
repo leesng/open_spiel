@@ -17,7 +17,7 @@ state::state(multiverse &mtv) noexcept : m(mtv.clone())
 	has_passed = false;
 }
 
-state::state(const pgnparser_ast::game &g)
+state::state(const pgnparser_ast::game &g, std::function<void(const state&, const ext_move&)> on_step)
 {
     auto variant_setup = derive_variant_setup(g);
     m = create_multiverse_from_variant_setup(variant_setup);
@@ -64,6 +64,7 @@ state::state(const pgnparser_ast::game &g)
             }
             else
             {
+                state current_state_before_move = *this;
                 full_move fm = fm_opt.value();
                 bool flag;
                 if(pt_opt.has_value())
@@ -80,6 +81,12 @@ state::state(const pgnparser_ast::game &g)
                     std::ostringstream oss;
                     oss << "state(): Illegal move: " << mv << " (parsed as: " << fm << ")";
                     throw std::runtime_error(oss.str());
+                }
+                if (on_step) {
+                    ext_move target_move = pt_opt.has_value()
+                        ? ext_move(fm, to_white(*pt_opt))
+                        : ext_move(fm);
+                    on_step(current_state_before_move, target_move);
                 }
             }
         }

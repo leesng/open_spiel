@@ -1224,13 +1224,12 @@ generator<moveseq> HC_info::stable_search(search_space ss) const
     co_return;
 }
 
-generator<moveseq> HC_info::search(search_space ss, std::string hstr) const
+generator<moveseq> HC_info::search(search_space ss) const
 {
     auto [l_min, l_max] = s.get_lines_range();
     int line_span = l_max - l_min + 1;
     dprint("number of lines:", line_span);
-	auto start = std::chrono::high_resolution_clock::now();
-    if(line_span >= 64)
+    if(line_span >= 10)
     {
         dprint("searching the first point using stable method");
         while(!ss.empty())
@@ -1255,15 +1254,6 @@ generator<moveseq> HC_info::search(search_space ss, std::string hstr) const
                     }
                     // make sure when a leave is removed, so is the corresponding arrive
                     ss = std::move(adjoined);
-					
-					if (!hstr.empty()) {
-						auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
-						if (us > 10000000) { // 10 sec
-							auto [t, c] = s.get_present();
-							std::cout << "HC search timeout:" << us << "us. present[" << t << ","  << c << "]:" << hstr << std::endl;
-							co_return;
-						}
-					}
                 }
                 else
                 {

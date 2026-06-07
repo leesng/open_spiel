@@ -8,7 +8,7 @@
 #include <set>
 #include <string>
 #include <tuple>
-#include <unordered_set>
+#include <functional>
 #include <utility>
 #include <iostream>
 #include "multiverse.h"
@@ -40,7 +40,7 @@ class state
 
 public:
     state(multiverse &mtv) noexcept;
-    state(const pgnparser_ast::game &g);
+    state(const pgnparser_ast::game &g, std::function<void(const state&, const ext_move&)> on_step = nullptr);
     virtual ~state() = default;
     
     // standard copy-constructors
