@@ -8,10 +8,16 @@
 #include <unordered_set>
 #include <vector>
 #include <functional>
+#include <iostream>
+#include <fstream>
+#include <filesystem>
+#include <thread>
 
+#include "state.h"
+#include "hypercuboid.h"
+#include "pgnparser.h"
 #include "open_spiel/spiel.h"
 #include "zobrist_cache.h"
-#include "state.h"
 
 namespace open_spiel {
 namespace five_d_chess {
@@ -86,9 +92,39 @@ constexpr static std::string move_list_to_string(std::vector<std::string> str_li
 	return all_move_str;
 }
 
-//================================ Framework Type Forward Declaration =================================
-// Forward declaration of core engine state class
-class state;
+/*constexpr*/ static std::vector<std::pair<::state, ::ext_move>> load_all_books_from_directory(const std::string book_dir)
+{
+    std::vector<std::pair<::state, ::ext_move>> all_books;
+
+    if (!std::filesystem::exists(book_dir) || !std::filesystem::is_directory(book_dir)) {
+        return all_books;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(book_dir)) {
+        const auto& path = entry.path();
+		std::cout << "Loading: " << path.string() << std::endl;
+        if (path.extension() == ".5dpgn") {
+			
+			std::ifstream ifs(path.string(), std::ios::in | std::ios::binary);
+			if (!ifs) {
+				continue;
+			}
+
+			std::string pgn_content = std::string((std::istreambuf_iterator<char>(ifs)),
+                      std::istreambuf_iterator<char>());
+
+			auto parsed_game = pgnparser(pgn_content).parse_game();
+
+			// ===================== 完全按照你写的方式调用构造函数 =====================
+			::state s2(*parsed_game, [&](const ::state& s, const ::ext_move& m) {
+				all_books.emplace_back(s, m); // 所有文件合并到一个 vector
+			});
+        }
+    }
+
+    std::cout << "All loaded steps:" << all_books.size() << std::endl;
+    return all_books;
+}
 
 // Game state implementation for 5D Chess
 class FiveDChessState : public State {

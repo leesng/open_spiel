@@ -5,12 +5,6 @@
 #include "open_spiel/observer.h"
 #include "open_spiel/spiel_utils.h"
 
-#include "state.h"
-#include "hypercuboid.h"
-#include "pgnparser.h"
-
-#include <thread>
-
 namespace open_spiel {
 namespace five_d_chess {
 namespace {
