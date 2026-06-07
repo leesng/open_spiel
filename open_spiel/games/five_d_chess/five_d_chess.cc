@@ -353,7 +353,7 @@ void FiveDChessState::DoApplyAction(Action action) {
   if (is_first_real_selfplay_game_)
     std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ << ":" << flags << pto << "}"
               << history_moves_list_.back() << std::endl;
-  bool success = s->apply_move(fm, pto);
+  bool success = s->apply_move<true>(fm, pto);
   SPIEL_CHECK_TRUE(success);
 
   if (s->big_round_over()) {
