@@ -22,7 +22,7 @@ using TensorIndex = int;
 
 // ==================== Global Constant Definitions ====================
 // Bit width definition for encoding
-constexpr int kTotalBoardNumBits = 11;
+constexpr int kTotalBoardNumBits = 9; //11;
 constexpr int kOperableBoardNumBits = 7;
 constexpr int kMoveNumPerBoardBits = 8;
 
@@ -30,7 +30,7 @@ constexpr int kNumDistinctActions = 1 << (kOperableBoardNumBits + kMoveNumPerBoa
 constexpr int kMaxMovesPerBoard = 1 << kMoveNumPerBoardBits; // Maximum moves per single board (256)
 
 constexpr int kMaxOperableBoards = 1 << kOperableBoardNumBits;       // Maximum operable boards (128)
-constexpr int kMaxRuntimeBoards = 1 << kTotalBoardNumBits;    // Maximum active boards during runtime (1024)
+constexpr int kMaxRuntimeBoards = 1 << kTotalBoardNumBits;    // Maximum active boards during runtime
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2; // Maximum graph edges during runtime
 
 constexpr int kNumPieceChannels = 12;         // Total bitboard channels for chess pieces
