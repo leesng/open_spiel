@@ -169,7 +169,7 @@ std::vector<std::pair<int, int>> game::get_current_boards_edges() const
 {
     const state& s = get_current_state();
     auto [all_boards, boards_edges] = s.get_boards_and_edges();
-	match_status_t ms;
+	/*match_status_t ms;
 	auto operable_boards = s.get_operable_boards_moves_and_match_status(ms);
 
 	for (auto& outer_pair : operable_boards) {
@@ -180,7 +180,7 @@ std::vector<std::pair<int, int>> game::get_current_boards_edges() const
 			std::cout << fm.to_string() << ((flags & 32) ? "=" + std::string(1, "QNRB"[pto]) : "") << "|" << flags << std::endl;
 		}
 		std::cout << std::endl;
-	}
+	}*/
     return boards_edges;
 }
 

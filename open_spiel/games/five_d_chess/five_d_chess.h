@@ -115,9 +115,8 @@ constexpr static std::string move_list_to_string(std::vector<std::string> str_li
 
 			auto parsed_game = pgnparser(pgn_content).parse_game();
 
-			// ===================== 完全按照你写的方式调用构造函数 =====================
 			::state s2(*parsed_game, [&](const ::state& s, const ::ext_move& m) {
-				all_books.emplace_back(s, m); // 所有文件合并到一个 vector
+				all_books.emplace_back(s, m);
 			});
         }
     }
@@ -154,15 +153,11 @@ class FiveDChessState : public State {
   Action EncodeAction(MoveId moveid) const;
   MoveId DecodeAction(Action action) const;
 
-  // Map global board ID to continuous tensor index for GNN
-  TensorIndex GetTensorIndexForBoard(BoardId board_id) const;
-
   // Game runtime status
   bool is_first_real_selfplay_game_;
   Player current_player_;
   int num_moves_;
   int current_big_round_;
-  std::unordered_set<BoardId> operated_boards_;  // Record all operated global board IDs
 
   // Core game engine data (aligned with native engine type)
     const std::string init_str = R"(
@@ -177,8 +172,6 @@ class FiveDChessState : public State {
    std::vector<std::pair<BoardId, std::vector<uint64_t>>> all_boards_;
    std::vector<std::pair<BoardId, std::vector<MoveId>>> operable_boards_;
    std::vector<std::pair<BoardId, BoardId>> boards_edges_;
-   // Earliest board ID that contains non-branching moves
-   BoardId earliest_non_branch_boardid_;
    std::vector<std::string> history_moves_list_; // Move history for debug
    
 };

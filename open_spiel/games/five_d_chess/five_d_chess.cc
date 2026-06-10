@@ -85,7 +85,6 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
 
   current_player_ = c;
-  earliest_non_branch_boardid_ = std::numeric_limits<BoardId>::max();
   history_moves_list_.clear();
 }
 
@@ -99,7 +98,6 @@ FiveDChessState::FiveDChessState(const FiveDChessState& other)
       all_boards_(other.all_boards_),
       operable_boards_(other.operable_boards_),
       boards_edges_(other.boards_edges_),
-      earliest_non_branch_boardid_(other.earliest_non_branch_boardid_),
       history_moves_list_(other.history_moves_list_) {
   is_first_real_selfplay_game_ = false;
 }
@@ -266,7 +264,7 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     if (op_fill >= kMaxOperableBoards) break;
     {
       int local_id = board_local_id.at(board_id);
-      if (earliest_non_branch_boardid_ == board_id) {
+      if (0 == board_id) {
         values[ptr++] = static_cast<float>(local_id + kMaxRuntimeBoards);
       } else {
         values[ptr++] = static_cast<float>(local_id);
@@ -349,6 +347,7 @@ void FiveDChessState::DoApplyAction(Action action) {
               << history_moves_list_.back() << std::endl;
   bool success = s->apply_move<true>(fm, pto);
   SPIEL_CHECK_TRUE(success);
+  //std::tie(all_boards_, boards_edges_) = s->apply_move_and_return_new_boards(fm, pto);
 
   if (s->big_round_over()) {
     bool submit_success = s->submit();

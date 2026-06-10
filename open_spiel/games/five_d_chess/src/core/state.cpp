@@ -182,20 +182,14 @@ template<bool UNSAFE>
 bool state::apply_move(full_move fm, piece_t promote_to)
 {
     dprint("applying move", fm);
-    vec4 p = fm.from;
-    vec4 q = fm.to;
-    vec4 d = q - p;
-
-    // pass move
-    if (q == vec4(0, 0, 0, 0)) {
-		// mark it has beed passed
-		has_passed = true;
-
-        return true;
-    }
 
     if constexpr (!UNSAFE)
     {
+		vec4 p = fm.from;
+		vec4 q = fm.to;
+		vec4 d = q - p;
+	
+		if (q != vec4(0, 0, 0, 0)) {
 #ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
@@ -219,8 +213,37 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         {
             return false;
         }
+		}
     }
     
+    /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
+     If some move logic needs to be changed here, make sure also perform change
+     in HC_info::build_HC()
+     */
+	apply_move_and_return_new_boards(fm, promote_to);
+
+    return true;
+}
+
+std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
+           std::vector<std::pair<int,int>>> state::apply_move_and_return_new_boards(full_move fm, piece_t promote_to)
+{
+	std::vector<std::pair<int,int>> new_edges;
+	std::vector<std::pair<int,std::vector<uint64_t>>> new_boards;
+	
+    dprint("applying move", fm);
+    vec4 p = fm.from;
+    vec4 q = fm.to;
+    vec4 d = q - p;
+
+    // pass move
+    if (q == vec4(0, 0, 0, 0)) {
+		// mark it has beed passed
+		has_passed = true;
+
+        return std::make_tuple(new_boards, new_edges);
+    }
+
     /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
      If some move logic needs to be changed here, make sure also perform change
      in HC_info::build_HC()
@@ -268,6 +291,8 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         }
 
         new_board->contact() = (static_cast<uint64_t>(p.l()) & 0xFF) << 8;
+		
+		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
 
     }
     // non-branching superphysical move
@@ -305,6 +330,9 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         new_board_to->contact() = (static_cast<uint64_t>(q.l()) & 0xFF) << 8;
         new_board_to->contact() |= (static_cast<uint64_t>(p.l()) & 0xFF) << 24;
         new_board_to->contact() |= (static_cast<uint64_t>(p.t() + player) & 0xFF) << 16;
+		
+		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
+		//m->get_one_board_and_edge(l_to_u(q.l()), tc_to_v(q.t(), player)+1, new_boards, new_edges);
 		
     }
     //branching move
@@ -352,8 +380,10 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         new_board_to->contact() |= (static_cast<uint64_t>(p.l()) & 0xFF) << 24;
         new_board_to->contact() |= (static_cast<uint64_t>(p.t() + player) & 0xFF) << 16;
 		
+		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
+		//m->get_one_board_and_edge(l_to_u(new_l_to), tc_to_v(q.t(), player)+1, new_boards, new_edges);
     }
-    return true;
+    return std::make_tuple(new_boards, new_edges);
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const

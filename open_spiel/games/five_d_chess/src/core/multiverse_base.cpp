@@ -226,10 +226,43 @@ std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec
 	return result;
 }
 
-//#define MAKE_BOARD_ID(u,v) ((u) << 8 | (v))
-//#define MAKE_MOVE_ID(u0,v0,y0,x0,u1,v1,y1,x1,promote_to,flags) ( \
-//(u0) << 44 | (v0) << 36 | (y0) << 33 | (x0) << 30 | (u1) << 22 | (v1) << 14 | (y1) << 11 | (x1) << 8 | \
-//(promote_to) << 4 | (flags))  // bit 0 is valid bit; bit 1 is is branching move
+void multiverse::get_one_board_and_edge(int u, int v, 
+	std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards,
+	std::vector<std::pair<int,int>>& boards_edges) const
+{
+	const auto& timeline = boards[u];
+	const auto [t, c] = v_to_tc(v);
+	if ((!timeline.empty()) && (timeline[v] != nullptr)) {
+		// get board edges
+		int parent_u = l_to_u(((timeline[v]->contact() >> 8 & 0xFF) ^ 0x80) - 0x80);
+		int travel_u = l_to_u(((timeline[v]->contact() >> 24 & 0xFF) ^ 0x80) - 0x80);
+		int travel_v = tc_to_v(((timeline[v]->contact() >> 16 & 0xFF) ^ 0x80) - 0x80, c);
+		if (parent_u > 0 || v - 1 > 0) {
+			boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(parent_u, v - 1)));
+			//std::cout << "parent==" << u << v << parent_u << v - 1 << std::endl;
+		}
+		if (travel_u > 0 || travel_v > 1) {
+			boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(travel_u, travel_v)));
+			//std::cout << "travel==" << u << v << travel_u << travel_v << std::endl;
+		}
+		//get board planes
+		std::vector<uint64_t> board_planes;
+		board_planes.push_back(timeline[v]->white());
+		board_planes.push_back(timeline[v]->black());
+		board_planes.push_back(timeline[v]->royal());
+		board_planes.push_back(timeline[v]->lking());
+		board_planes.push_back(timeline[v]->lknight());
+		board_planes.push_back(timeline[v]->lpawn());
+		board_planes.push_back(timeline[v]->lrawn());
+		board_planes.push_back(timeline[v]->lrook());
+		board_planes.push_back(timeline[v]->lbishop());
+		board_planes.push_back(timeline[v]->lunicorn());
+		board_planes.push_back(timeline[v]->ldragon());
+		board_planes.push_back(timeline[v]->umove());
+		all_boards.push_back(std::make_pair(EncodeBoardId(u,v), board_planes));
+    }
+}
+
 std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
            std::vector<std::pair<int,int>>> multiverse::get_boards_and_edges() const
 {
@@ -243,34 +276,7 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
         for(int v = 0; v < static_cast<int>(timeline.size()); v++) {
             const auto [t, c] = v_to_tc(v);
             if(timeline[v] != nullptr) {
-				// get board edges
-				int parent_u = l_to_u(((timeline[v]->contact() >> 8 & 0xFF) ^ 0x80) - 0x80);
-				int travel_u = l_to_u(((timeline[v]->contact() >> 24 & 0xFF) ^ 0x80) - 0x80);
-				int travel_v = tc_to_v(((timeline[v]->contact() >> 16 & 0xFF) ^ 0x80) - 0x80, c);
-				if (parent_u > 0 || v - 1 > 0) {
-					boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(parent_u, v - 1)));
-					//std::cout << "parent==" << u << v << parent_u << v - 1 << std::endl;
-				}
-				if (travel_u > 0 || travel_v > 1) {
-					boards_edges.push_back(std::make_pair(EncodeBoardId(u,v), EncodeBoardId(travel_u, travel_v)));
-					//std::cout << "travel==" << u << v << travel_u << travel_v << std::endl;
-				}
-				//get board planes
-				std::vector<uint64_t> board_planes;
-				board_planes.push_back(timeline[v]->white());
-				board_planes.push_back(timeline[v]->black());
-				board_planes.push_back(timeline[v]->royal());
-				board_planes.push_back(timeline[v]->lking());
-				board_planes.push_back(timeline[v]->lknight());
-				board_planes.push_back(timeline[v]->lpawn());
-				board_planes.push_back(timeline[v]->lrawn());
-				board_planes.push_back(timeline[v]->lrook());
-				board_planes.push_back(timeline[v]->lbishop());
-				board_planes.push_back(timeline[v]->lunicorn());
-				board_planes.push_back(timeline[v]->ldragon());
-				board_planes.push_back(timeline[v]->umove());
-                all_boards.push_back(std::make_pair(EncodeBoardId(u,v), board_planes));
-				
+				get_one_board_and_edge(u, v, all_boards, boards_edges);
             }
         }
 

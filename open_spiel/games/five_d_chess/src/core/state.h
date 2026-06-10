@@ -74,6 +74,8 @@ public:
      */
     template<bool UNSAFE = false>
     bool apply_move(full_move fm, piece_t promote_to = QUEEN_W);
+	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> 
+		apply_move_and_return_new_boards(full_move fm, piece_t promote_to);
     template<bool UNSAFE = false>
     bool submit();
     
