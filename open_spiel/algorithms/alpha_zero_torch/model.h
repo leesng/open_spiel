@@ -36,6 +36,7 @@ constexpr int kEmbeddingDim = 128;         // Node feature embedding dimension
 
 constexpr int kMaxRuntimeBoards = 1 << 9; //11; // Maximum active boards during runtime
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
+constexpr int kTotalBoardDataSize = 2 + kBoardInputChannels * kBoardHeight * kBoardWidth;
 	
 // ========================================================================
 
@@ -198,11 +199,12 @@ TORCH_MODULE(MLPOutputBlock);
 class AGHBoardEncoderImpl : public torch::nn::Module {
  public:
   explicit AGHBoardEncoderImpl(int embedding_dim);
-  torch::Tensor forward(torch::Tensor x);
+  torch::Tensor forward(torch::Tensor x, torch::Tensor coords);
  private:
   torch::nn::Conv2d conv1_ = nullptr;
   torch::nn::Conv2d conv2_ = nullptr;
   torch::nn::ReLU relu_ = nullptr;
+  torch::nn::Linear coord_proj_ = nullptr; // Coordinate projection layer
   int embedding_dim_;
 };
 TORCH_MODULE(AGHBoardEncoder);
@@ -228,6 +230,7 @@ class AGHHierarchicalHeadImpl : public torch::nn::Module {
     torch::Tensor all_node_features,
     torch::Tensor global_feature,
     torch::Tensor operable_board_indices,  // Indices of operable boards in full node list [kMaxOperableBoards]
+    torch::Tensor operable_board_priors,   // Board selection prior probabilities [num_operable]
     torch::Tensor legal_move_mask,        // Legal move mask [kMaxOperableBoards, kMaxMovesPerBoard]
     int num_operable_boards               // Current actual number of operable boards
   );
@@ -236,8 +239,6 @@ class AGHHierarchicalHeadImpl : public torch::nn::Module {
   torch::nn::Linear value_head_ = nullptr;
   torch::nn::Linear board_selector_head_ = nullptr;
   torch::nn::Linear move_selector_head_ = nullptr;
-  // Learnable bias for non-branching boards
-  torch::Tensor non_branch_bias_;
 };
 TORCH_MODULE(AGHHierarchicalHead);
 // ================================================================================

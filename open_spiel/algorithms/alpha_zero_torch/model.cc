@@ -271,12 +271,19 @@ AGHBoardEncoderImpl::AGHBoardEncoderImpl(int embedding_dim)
   conv2_ = register_module("agh_conv2",
       torch::nn::Conv2d(torch::nn::Conv2dOptions(embedding_dim, embedding_dim, 3).padding(1)));
   relu_ = register_module("agh_relu", torch::nn::ReLU());
+  // Coordinate projection layer: maps (u,v) to embedding dimension
+  coord_proj_ = register_module("agh_coord_proj", torch::nn::Linear(2, embedding_dim));
 }
 
-torch::Tensor AGHBoardEncoderImpl::forward(torch::Tensor x) {
+torch::Tensor AGHBoardEncoderImpl::forward(torch::Tensor x, torch::Tensor coords) {
   x = x.view({-1, kBoardInputChannels, kBoardHeight, kBoardWidth});
-  torch::Tensor feat = relu_->forward(conv2_->forward(relu_->forward(conv1_->forward(x))));
-  return feat.mean({2, 3});
+  // Encode board bitboard features
+  torch::Tensor board_feat = relu_->forward(conv2_->forward(relu_->forward(conv1_->forward(x))));
+  board_feat = board_feat.mean({2, 3}); // Global average pooling
+  
+  // Encode (u,v) coordinates and fuse with board features
+  torch::Tensor coord_feat = coord_proj_->forward(coords);
+  return board_feat + coord_feat;
 }
 
 AGHGATEAUImpl::AGHGATEAUImpl(int embedding_dim)
@@ -336,15 +343,13 @@ AGHHierarchicalHeadImpl::AGHHierarchicalHeadImpl(int embedding_dim) {
   // 4-head cross-board multi-head attention
   cross_board_attn_ = register_module("agh_cross_attn", 
       torch::nn::MultiheadAttention(torch::nn::MultiheadAttentionOptions(embedding_dim, 4)));
-	  
-  // Register learnable bias for non-branching boards
-  non_branch_bias_ = register_parameter("non_branch_bias", torch::tensor(5.0f));
 }
 
 std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
     torch::Tensor all_node_features,
     torch::Tensor global_feature,
     torch::Tensor operable_board_indices,
+    torch::Tensor operable_board_priors,
     torch::Tensor legal_move_mask,
     int num_operable_boards) {
   // 1. Position value prediction
@@ -361,14 +366,9 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   // =============== Utilize board index information passed from game logic ===============
   // 1. Parse encoded board indices from game side
   torch::Tensor valid_board_mask = operable_board_indices != -1;
-  torch::Tensor has_non_branch_mask = operable_board_indices >= kMaxRuntimeBoards;
 
-  // 2. Restore real local board ID for feature lookup
-  torch::Tensor real_board_indices = torch::where(
-      has_non_branch_mask,
-      operable_board_indices - kMaxRuntimeBoards,
-      operable_board_indices
-  ).to(torch::kLong);
+  // Convert indices to long type for tensor indexing
+  torch::Tensor real_board_indices = operable_board_indices.to(torch::kLong);
 
   // Prevent out-of-bounds access by replacing invalid index -1 with 0
   real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
@@ -385,6 +385,9 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
 
   // Remove original board priority suppression logic
   torch::Tensor operable_board_logits = board_selector_head_->forward(operable_node_features).squeeze(-1);
+  // Add log prior for numerical stability (avoids zero probability issues)
+  constexpr float PRIOR_BOARD_STRENGTH = 2.0f;
+  operable_board_logits = operable_board_logits + PRIOR_BOARD_STRENGTH * torch::log(operable_board_priors.clamp_min(1e-8));
 
   // =============== Adjust logits based on game state information ===============
   // 1. Mask out invalid boards (index = -1) completely
@@ -394,19 +397,13 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       -1e20 * torch::ones_like(operable_board_logits)
   );
 
-  // 2. Add learnable bias to boards with non-branching moves to increase selection priority
-  operable_board_logits = torch::where(
-    has_non_branch_mask,
-    operable_board_logits + non_branch_bias_,
-    operable_board_logits
-  );
-  // =======================================================================
-
-  // Move selection: Suppress branching moves by priority value
+  // Move selection: apply priority-based suppression
   torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
 
   // Strong suppression: Deduct large value for low-priority branching moves
-  operable_move_logits = operable_move_logits - 100.0f * (1.0f - move_priorities);
+  //operable_move_logits = operable_move_logits - 100.0f * (1.0f - move_priorities);
+  constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
+  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));
 
   // Double soft pruning: Keep only top candidates
   float max_board_logit = operable_board_logits.max().item<float>();
@@ -416,11 +413,11 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       -1e9 * torch::ones_like(operable_board_logits)
   );
 
-  float max_move_logit = operable_move_logits.max().item<float>();
+  auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
   operable_move_logits = torch::where(
-      operable_move_logits > max_move_logit - 5.0f,
-      operable_move_logits,
-      -1e9 * torch::ones_like(operable_move_logits)
+    operable_move_logits > max_per_board - 5.0f,
+    operable_move_logits,
+    -1e9 * torch::ones_like(operable_move_logits)
   );
 
   // Fill calculated logits into fixed-size tensor
@@ -434,6 +431,65 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   // Combine to fixed-dimension policy vector
   torch::Tensor final_policy = board_probs.unsqueeze(1) * move_probs;
   final_policy = final_policy.flatten().unsqueeze(0);
+
+// ==================== Probability Distribution Debug Print ====================
+// Comment out the line below to disable all debug printing
+//#define DEBUG_PROBABILITY 1
+#ifdef DEBUG_PROBABILITY
+{
+    std::cout << "\n======================================" << std::endl;
+    std::cout << "=== PROBABILITY DISTRIBUTION DEBUG ===" << std::endl;
+    std::cout << "Total operable boards: " << num_operable_boards << std::endl;
+    std::cout << "Global value prediction: " << value.item<float>() << std::endl;
+    std::cout << "--------------------------------------" << std::endl;
+    
+    // Print selection probability for each operable board
+    float total_board_prob = 0.0f;
+    for (int i = 0; i < num_operable_boards; ++i) {
+        float prob = board_probs[i].item<float>();
+        // FIXED: Use int64_t instead of long for MSVC compatibility
+        int board_idx = (int)real_board_indices[i].item<int64_t>();
+        total_board_prob += prob;
+        
+        std::cout << "Board " << i 
+                  << " (original ID: " << board_idx << "): " 
+                  << std::fixed << std::setprecision(4) << prob * 100 << "%" 
+                  << std::endl;
+        
+        // Print top 5 highest probability moves on this board
+        auto move_probs_this_board = move_probs[i];
+		auto move_logits_this_board = operable_move_logits[i];
+		std::cout << "  Logits range: min=" << move_logits_this_board.min().item<float>()
+          << ", max=" << move_logits_this_board.max().item<float>() << std::endl;
+		  
+        std::vector<std::pair<float, int>> move_prob_list;
+        
+        for (int j = 0; j < kMaxMovesPerBoard; ++j) {
+            float move_prob = move_probs_this_board[j].item<float>();
+            if (move_prob > 0.0001f) { // Only print moves with probability > 0.01%
+                move_prob_list.emplace_back(move_prob, j);
+            }
+        }
+        
+        // Sort moves by probability descending
+        std::sort(move_prob_list.rbegin(), move_prob_list.rend());
+        
+        // Print top 5 moves
+        int print_count = std::min(5, (int)move_prob_list.size());
+        for (int k = 0; k < print_count; ++k) {
+            std::cout << "  Move " << move_prob_list[k].second << ": " 
+                      << std::fixed << std::setprecision(4) << move_prob_list[k].first * 100 << "%" 
+                      << std::endl;
+        }
+    }
+    
+    std::cout << "--------------------------------------" << std::endl;
+    std::cout << "Total board probability: " << std::fixed << std::setprecision(6) << total_board_prob << std::endl;
+    std::cout << "Final policy sum: " << std::fixed << std::setprecision(6) << final_policy.sum().item<float>() << std::endl;
+    std::cout << "======================================\n" << std::endl;
+}
+#endif
+// ============================================================================
 
   return {value, final_policy, board_probs, move_probs};
 }
@@ -616,62 +672,98 @@ std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor ma
 
     torch::Tensor obs_flat = x.flatten();
 
-    // 1. Parse metadata from observation tensor
-    int total_boards   = (int)obs_flat[0].item<float>();
-    int num_operable   = (int)obs_flat[1].item<float>();
-    int num_edges      = (int)obs_flat[2].item<float>();
+	// 1. Parse metadata section
+	int total_boards   = (int)obs_flat[0].item<float>();
+	int num_operable   = (int)obs_flat[1].item<float>();
+	int num_edges      = (int)obs_flat[2].item<float>();
+	int current_player = (int)obs_flat[3].item<float>();
 
-    // 2. Memory offset definition for observation segments
+	// Add runtime boundary checks (recommended)
+	TORCH_CHECK(total_boards >= 0 && total_boards <= kMaxRuntimeBoards, 
+				"Total boards out of range: ", total_boards);
+	TORCH_CHECK(num_operable >= 0 && num_operable <= kMaxOperableBoards, 
+				"Num operable boards out of range: ", num_operable);
+	TORCH_CHECK(num_edges >= 0 && num_edges <= kMaxRuntimeEdges, 
+				"Num edges out of range: ", num_edges);
+	TORCH_CHECK(current_player == 0 || current_player == 1, 
+				"Invalid current player: ", current_player);
+
+    // 2. Calculate memory offsets for observation sections
     int64_t oper_offset    = 4;
-    int64_t mask_offset    = oper_offset + kMaxOperableBoards;
-    int64_t boards_offset  = 4 + kMaxOperableBoards + kFixedPolicyDim;
-	int64_t edges_offset    = boards_offset + total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;;
+    int64_t mask_offset    = oper_offset + 2 * kMaxOperableBoards;  // 2 floats per operable board (index + prior)
+    int64_t boards_offset  = mask_offset + kFixedPolicyDim;
+    int64_t edges_offset    = boards_offset + total_boards * kTotalBoardDataSize;
 
-    // 4. Extract operable board indices
-    torch::Tensor operable_board_indices = obs_flat.index({torch::indexing::Slice(oper_offset, oper_offset + num_operable)});
-    operable_board_indices = operable_board_indices.to(torch::kLong);
+    // 3. Parse operable board indices and selection priors
+    torch::Tensor operable_board_indices = obs_flat.index({
+      torch::indexing::Slice(oper_offset, oper_offset + 2 * num_operable, 2)  // Step 2: extract indices
+    }).to(torch::kLong);
+    
+    torch::Tensor operable_board_priors = obs_flat.index({
+      torch::indexing::Slice(oper_offset + 1, oper_offset + 1 + 2 * num_operable, 2)  // Step 2: extract priors
+    }).to(torch::kFloat32);
 
-    // 5. Extract legal move mask
+    // 4. Parse legal move prior mask
     torch::Tensor legal_move_mask = obs_flat.index({
       torch::indexing::Slice(mask_offset, mask_offset + kFixedPolicyDim)
     });
-	legal_move_mask = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard}).to(torch::kFloat32);
+    legal_move_mask = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard}).to(torch::kFloat32);
 
-    // 6. Extract raw board data (only valid part)
-    int64_t valid_board_size = total_boards * kBoardInputChannels * kBoardHeight * kBoardWidth;
-    torch::Tensor boards = obs_flat.index({
-      torch::indexing::Slice(boards_offset, boards_offset + valid_board_size)
-    });
-    boards = boards.view({total_boards, kBoardInputChannels, kBoardHeight, kBoardWidth});
+    // 5. Parse board data (u, v coordinates + bitboard)
+    std::vector<torch::Tensor> all_boards;
+    std::vector<torch::Tensor> all_coords;  // Store (u, v) coordinates for each board
+    
+    for (int i = 0; i < total_boards; ++i) {
+      int64_t board_start = boards_offset + i * kTotalBoardDataSize;
+      
+      // Read u and v coordinates
+      float u = obs_flat[board_start + 0].item<float>();
+      float v = obs_flat[board_start + 1].item<float>();
+      all_coords.push_back(torch::tensor({u, v}, torch::kFloat32).to(device_));
+      
+      // Read bitboard data (skip first 2 floats for coordinates)
+      torch::Tensor board = obs_flat.index({
+        torch::indexing::Slice(board_start + 2, board_start + kTotalBoardDataSize)
+      }).view({kBoardInputChannels, kBoardHeight, kBoardWidth});
+      all_boards.push_back(board);
+    }
+    
+    torch::Tensor batch_board = torch::stack(all_boards, 0).to(device_);
+    torch::Tensor batch_coords = torch::stack(all_coords, 0).to(device_);
 
-    // 3. Extract graph edge index
+    // 6. Parse edge indices
     torch::Tensor edge_index = obs_flat.index({torch::indexing::Slice(edges_offset, edges_offset + 2 * num_edges)});
-    edge_index = edge_index.view({2, -1}).to(torch::kLong);
+    edge_index = edge_index.view({2, -1}).to(torch::kLong).to(device_);
 
-    // 7. Board encoding: Generate embedding for all boards
-    torch::Tensor node_features = ag_hier_encoder_->forward(boards);
-    // Output shape: [total_boards, kEmbeddingDim]
+    // 7. Board encoding: fuse u,v coordinates with bitboard features
+    torch::Tensor node_features = ag_hier_encoder_->forward(batch_board, batch_coords);
 
     // 8. GNN graph convolution with residual connection
     node_features = node_features + ag_hier_gateau_->forward(node_features, edge_index);
 
-    // 9. Global pooling for overall game state feature
-    torch::Tensor global_feature = node_features.mean(0);
-    global_feature = global_feature.view({1, kEmbeddingDim});
+	// 9. Global feature: fuse current player information (improved version)
+	torch::Tensor global_feature = node_features.mean(0);
+	// Create a 128-dimensional player embedding
+	torch::Tensor player_embedding = torch::full({kEmbeddingDim}, 
+												 static_cast<float>(current_player) * 2.0f - 1.0f,
+												 torch::kFloat32).to(global_feature.device());
+	// Add to global feature (maps player to [-1, 1] range for better gradient flow)
+	global_feature = global_feature + player_embedding;
+	global_feature = global_feature.view({1, kEmbeddingDim});
 
-    // 10. Forward pass of hierarchical output head
+    // 10. Hierarchical output head forward pass
     auto head_output = ag_hier_output_->forward(
-        node_features, global_feature, operable_board_indices, legal_move_mask, num_operable);
+        node_features, global_feature, operable_board_indices, 
+        operable_board_priors, legal_move_mask, num_operable);
     torch::Tensor value = head_output[0];
     torch::Tensor final_policy = head_output[1];
 
-    // Enforce output shape to match vpnet.cc requirements
+    // Output shape validation
     TORCH_CHECK(value.dim() == 2 && value.size(1) == 1, 
       "Value final shape must be [batch_size, 1], got ", value.sizes());
     TORCH_CHECK(final_policy.dim() == 2 && final_policy.size(1) == kFixedPolicyDim, 
       "Policy final shape must be [batch_size, ", kFixedPolicyDim, "], got ", final_policy.sizes());
 
-    // Final output
     output = {value, final_policy};
   } else {
     TORCH_CHECK(false, "Unknown nn_model: ", this->nn_model_);

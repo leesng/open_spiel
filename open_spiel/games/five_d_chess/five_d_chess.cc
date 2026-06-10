@@ -206,11 +206,11 @@ std::vector<double> FiveDChessState::Returns() const {
     return {0.0, 0.0};
   }
   if (ms == match_status_t::WHITE_WINS) {
-    return {1.0, -1.0};
+    return {1.0, -1.0}; // White wins, Black loses
   } else if (ms == match_status_t::BLACK_WINS) {
-    return {-1.0, 1.0};
+    return {-1.0, 1.0}; // Black wins, White loses
   } else {
-    return {0.0, 0.0};
+    return {0.0, 0.0}; // Draw/stalemate
   }
 }
 
@@ -252,31 +252,39 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     board_local_id[bid] = local_idx++;
   }
 
-  // Metadata
+  // ==================== Metadata Section ====================
   values[ptr++] = static_cast<float>(total_boards);
   values[ptr++] = static_cast<float>(num_operable);
   values[ptr++] = static_cast<float>(num_edges);
-  values[ptr++] = 0.0f;
+  values[ptr++] = static_cast<float>(current_player_); // Current player (0=White, 1=Black)
 
-  // Operable board indices
+  // ==================== Operable Boards Section ====================
   int op_fill = 0;
   for (const auto& [board_id, move_list] : operable_boards_) {
     if (op_fill >= kMaxOperableBoards) break;
-    {
-      int local_id = board_local_id.at(board_id);
-      if (0 == board_id) {
-        values[ptr++] = static_cast<float>(local_id + kMaxRuntimeBoards);
-      } else {
-        values[ptr++] = static_cast<float>(local_id);
-      }
-    }
+    
+    // Convert global board ID to local tensor index
+    int local_id = board_local_id.at(board_id);
+    values[ptr++] = static_cast<float>(local_id);
+    
+    // Board selection prior probability 
+	bool is_optional_line = std::any_of(move_list.begin(), move_list.end(), [](uint64_t x) {
+        return !!(x & 4);
+    });
+	bool has_non_branch_move = std::any_of(move_list.begin(), move_list.end(), [](uint64_t x) {
+        return !(x & 2);
+    });
+    values[ptr++] = is_optional_line ? 0.01f : 
+	                has_non_branch_move ? 1.0f : 0.5f;
     op_fill++;
   }
+  // Fill remaining operable board slots with invalid markers
   for (; op_fill < kMaxOperableBoards; ++op_fill) {
-    values[ptr++] = -1.0f;
+    values[ptr++] = -1.0f;  // Invalid board index
+    values[ptr++] = 0.0f;   // Zero prior for invalid boards
   }
 
-  // Legal move mask
+  // ==================== Legal Move Mask Section ====================
   auto legal_actions = LegalActions();
   for (Action a : legal_actions) {
     if (a >= 0 && a < kNumDistinctActions) {
@@ -285,22 +293,31 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
       if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) { //Pass or checking or being-checked
         values[ptr + a] = 1.0f;
       } else {
-        values[ptr + a] = 0.9f;
-        if (flags & 4) values[ptr + a] *= 0.0001f; // optional
-        if (flags & 2) values[ptr + a] *= 0.0001f; // branch
+        values[ptr + a] = 0.5f;
+        if (flags & 4) values[ptr + a] = 0.01f; // optional
+        if (flags & 2) values[ptr + a] = 0.0001f; // branch
       }
     }
   }
   ptr += kNumDistinctActions;
 
-  // Board data
+  // ==================== Board Data Section ====================
   int board_base = ptr;
   local_idx = 0;
   for (const auto& [bid, bitboards] : all_boards_) {
-    int base = board_base + local_idx * kNumPieceChannels * kBoardSize * kBoardSize;
+    int base = board_base + local_idx * (2 + kNumPieceChannels * kBoardSize * kBoardSize);
+    
+    // Extract u and v coordinates from board ID (high 8 bits = u, low 8 bits = v)
+    int u = (bid >> 8) & 0xFF;
+    int v = bid & 0xFF;
+    values[base + 0] = static_cast<float>(u);
+    values[base + 1] = static_cast<float>(v);
+    
+    // Write bitboard data (offset by 2 floats for coordinates)
+    int bb_base = base + 2;
     for (int c = 0; c < kNumPieceChannels && c < bitboards.size(); c++) {
       uint64_t bb = bitboards[c];
-      int ch_base = base + c * kBoardSize * kBoardSize;
+      int ch_base = bb_base + c * kBoardSize * kBoardSize;
       for (int y = 0; y < kBoardSize; y++) {
         for (int x = 0; x < kBoardSize; x++) {
           int sq = y * kBoardSize + x;
@@ -312,9 +329,9 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     }
     local_idx++;
   }
-  ptr += total_boards * kNumPieceChannels * kBoardSize * kBoardSize;
+  ptr += total_boards * (2 + kNumPieceChannels * kBoardSize * kBoardSize);
 
-  // Edge indices
+  // ==================== Graph Edges Section ====================
   int edge_fill = 0;
   for (const auto& [src_bid, dst_bid] : boards_edges_) {
     if (edge_fill >= kMaxRuntimeEdges) break;
@@ -322,10 +339,6 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     values[ptr++] = static_cast<float>(board_local_id.at(dst_bid));
     edge_fill++;
   }
-  //for (; edge_fill < kMaxRuntimeEdges; ++edge_fill) {
-  //  values[ptr++] = -1.0f;
-  //  values[ptr++] = -1.0f;
-  //}
   return;
 }
 

@@ -27,8 +27,8 @@ using MoveId = uint64_t;
 using TensorIndex = int;
 
 // ==================== Global Constant Definitions ====================
-// Bit width definition for encoding
-constexpr int kTotalBoardNumBits = 9; //11;
+// Bit width definitions for action encoding
+constexpr int kTotalBoardNumBits = 9;
 constexpr int kOperableBoardNumBits = 7;
 constexpr int kMoveNumPerBoardBits = 8;
 
@@ -44,15 +44,15 @@ constexpr int kBoardSize = 8;                 // Standard chess board size (8x8)
 
 // Fixed header size of observation tensor
 constexpr int kFixedHeaderSize =
-    4                                           // Metadata: total_boards, num_operable, num_edges, reserved
-    + kMaxOperableBoards                        // Operable board index list
-    + kNumDistinctActions;                      // Legal move mask array
+    4                                           // Metadata: total_boards, num_operable, num_edges, current_player
+    + 2 * kMaxOperableBoards                    // Operable board local index + selection prior
+    + kNumDistinctActions;                      // Legal move prior mask array
 
 // Total size of full observation tensor
 constexpr int kObservationTensorSize =
     kFixedHeaderSize
-    + kMaxRuntimeBoards * kNumPieceChannels * kBoardSize * kBoardSize
-	+ 2 * kMaxRuntimeEdges;                      // Graph edge index pairs
+    + kMaxRuntimeBoards * (2 + kNumPieceChannels * kBoardSize * kBoardSize)  // u coordinate + v coordinate + bitboard data
+    + 2 * kMaxRuntimeEdges;                      // Graph edge index pairs (src, dst)
 
 constexpr int kMaxGameLength = kMaxRuntimeBoards;          // Maximum allowed game steps
 constexpr Action kInvalidAction = -1;         // Mark for invalid action
@@ -121,7 +121,7 @@ constexpr static std::string move_list_to_string(std::vector<std::string> str_li
         }
     }
 
-    std::cout << "All loaded steps:" << all_books.size() << std::endl;
+    std::cout << "All loaded book steps: " << all_books.size() << std::endl;
     return all_books;
 }
 
