@@ -355,85 +355,80 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   // 1. Position value prediction
   torch::Tensor value = torch::tanh(value_head_->forward(global_feature));
 
-  // Fixed-shape logits to ensure 32768-dim policy output
+  // Initialize fixed-size logit tensors for 32768-dimensional policy output
   torch::Tensor full_board_logits = torch::full({kMaxOperableBoards}, -1e9, all_node_features.options());
   torch::Tensor full_move_logits = torch::full({kMaxOperableBoards, kMaxMovesPerBoard}, -1e9, all_node_features.options());
 
-  // Process legal move mask
+  // Reshape and slice legal move mask
   auto move_priorities_2d = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard});
   auto move_priorities = move_priorities_2d.narrow(0, 0, num_operable_boards);
 
-  // =============== Utilize board index information passed from game logic ===============
-  // 1. Parse encoded board indices from game side
+  // =============== Parse board index information from game side ===============
   torch::Tensor valid_board_mask = operable_board_indices != -1;
-
-  // Convert indices to long type for tensor indexing
   torch::Tensor real_board_indices = operable_board_indices.to(torch::kLong);
-
-  // Prevent out-of-bounds access by replacing invalid index -1 with 0
   real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
 
-  // 3. Extract features of operable boards
   torch::Tensor operable_node_features = all_node_features.index({real_board_indices});
   // =======================================================================
 
-  // Cross-board multi-head attention (MSVC compatible tuple access)
+  // Apply cross-board multi-head attention
   torch::Tensor attn_input = operable_node_features.unsqueeze(1);
   auto attn_result = cross_board_attn_->forward(attn_input, attn_input, attn_input);
   torch::Tensor attn_output = std::get<0>(attn_result);
   operable_node_features = attn_output.squeeze(1) + operable_node_features;
 
-  // Remove original board priority suppression logic
+  // Calculate board logits and add prior weight
   torch::Tensor operable_board_logits = board_selector_head_->forward(operable_node_features).squeeze(-1);
-  // Add log prior for numerical stability (avoids zero probability issues)
   constexpr float PRIOR_BOARD_STRENGTH = 2.0f;
   operable_board_logits = operable_board_logits + PRIOR_BOARD_STRENGTH * torch::log(operable_board_priors.clamp_min(1e-8));
 
-  // =============== Adjust logits based on game state information ===============
-  // 1. Mask out invalid boards (index = -1) completely
+  // Mask out invalid board entries
   operable_board_logits = torch::where(
       valid_board_mask,
       operable_board_logits,
       -1e20 * torch::ones_like(operable_board_logits)
   );
-
-  // Move selection: apply priority-based suppression
-  torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
-
-  // Strong suppression: Deduct large value for low-priority branching moves
-  //operable_move_logits = operable_move_logits - 100.0f * (1.0f - move_priorities);
-  constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
-  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));
-
-  // Double soft pruning: Keep only top candidates
+//#if 0
+  // ========== 1. Board level soft pruning & generate board pruning mask ==========
   float max_board_logit = operable_board_logits.max().item<float>();
+  torch::Tensor board_cut_mask = operable_board_logits > (max_board_logit - 5.0f);
   operable_board_logits = torch::where(
-      operable_board_logits > max_board_logit - 5.0f,
+      board_cut_mask,
       operable_board_logits,
       -1e9 * torch::ones_like(operable_board_logits)
   );
+//#endif
+  // ========== 2. Cascade pruning: prune all moves belonging to pruned boards ==========
+  torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
+  constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
+  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));//(1e-40));
+//#if 0
+  // Force mask all moves from pruned boards
+  operable_move_logits = torch::where(
+      board_cut_mask.unsqueeze(1),
+      operable_move_logits,
+      -1e9 * torch::ones_like(operable_move_logits)
+  );
 
+  // ========== 3. Preserve original move level soft pruning ==========
   auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
   operable_move_logits = torch::where(
     operable_move_logits > max_per_board - 5.0f,
     operable_move_logits,
     -1e9 * torch::ones_like(operable_move_logits)
   );
-
-  // Fill calculated logits into fixed-size tensor
+//#endif
+  // Fill computed logits into fixed-size tensors
   full_board_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_board_logits);
   full_move_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_move_logits);
 
-  // Final probability distribution calculation
+  // Compute final probability distribution
   torch::Tensor board_probs = torch::softmax(full_board_logits, -1);
   torch::Tensor move_probs = torch::softmax(full_move_logits, -1);
-
-  // Combine to fixed-dimension policy vector
   torch::Tensor final_policy = board_probs.unsqueeze(1) * move_probs;
   final_policy = final_policy.flatten().unsqueeze(0);
 
-// ==================== Probability Distribution Debug Print ====================
-// Comment out the line below to disable all debug printing
+// ==================== Enhanced Debug Print: 24 decimal precision + raw prior output ====================
 //#define DEBUG_PROBABILITY 1
 #ifdef DEBUG_PROBABILITY
 {
@@ -443,42 +438,48 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
     std::cout << "Global value prediction: " << value.item<float>() << std::endl;
     std::cout << "--------------------------------------" << std::endl;
     
-    // Print selection probability for each operable board
     float total_board_prob = 0.0f;
     for (int i = 0; i < num_operable_boards; ++i) {
-        float prob = board_probs[i].item<float>();
-        // FIXED: Use int64_t instead of long for MSVC compatibility
+        float board_prob = board_probs[i].item<float>();
+        float board_raw_prior = operable_board_priors[i].item<float>(); // Raw prior of the board
         int board_idx = (int)real_board_indices[i].item<int64_t>();
-        total_board_prob += prob;
-        
+        total_board_prob += board_prob;
+
+        // Print board info: model predicted probability and raw game prior
         std::cout << "Board " << i 
-                  << " (original ID: " << board_idx << "): " 
-                  << std::fixed << std::setprecision(4) << prob * 100 << "%" 
+                  << " (ID:" << board_idx 
+                  << ") | Model Prob: " << std::fixed << std::setprecision(4) << board_prob * 100 << "%"
+                  << " | Raw Prior: " << std::fixed << std::setprecision(4) << board_raw_prior * 100 << "%"
                   << std::endl;
         
-        // Print top 5 highest probability moves on this board
         auto move_probs_this_board = move_probs[i];
-		auto move_logits_this_board = operable_move_logits[i];
-		std::cout << "  Logits range: min=" << move_logits_this_board.min().item<float>()
-          << ", max=" << move_logits_this_board.max().item<float>() << std::endl;
+        auto move_logits_this_board = operable_move_logits[i];
+        auto move_raw_prior_this_board = move_priorities[i]; // Raw prior of the move
+
+        std::cout << "  Logits range: min=" << move_logits_this_board.min().item<float>()
+                  << ", max=" << move_logits_this_board.max().item<float>() << std::endl;
 		  
-        std::vector<std::pair<float, int>> move_prob_list;
-        
+        std::vector<std::tuple<float, float, int>> move_list; // (model probability, raw prior, move id)
         for (int j = 0; j < kMaxMovesPerBoard; ++j) {
             float move_prob = move_probs_this_board[j].item<float>();
-            if (move_prob > 0.0001f) { // Only print moves with probability > 0.01%
-                move_prob_list.emplace_back(move_prob, j);
+            float move_raw_prior = move_raw_prior_this_board[j].item<float>();
+            if (move_prob > 1e-40) {
+                move_list.emplace_back(move_prob, move_raw_prior, j);
             }
         }
         
-        // Sort moves by probability descending
-        std::sort(move_prob_list.rbegin(), move_prob_list.rend());
+        // Sort moves in descending order by model probability
+        std::sort(move_list.rbegin(), move_list.rend());
         
-        // Print top 5 moves
-        int print_count = std::min(5, (int)move_prob_list.size());
+        // Extend print limit to 100 moves
+        int print_count = std::min(100, (int)move_list.size());
         for (int k = 0; k < print_count; ++k) {
-            std::cout << "  Move " << move_prob_list[k].second << ": " 
-                      << std::fixed << std::setprecision(4) << move_prob_list[k].first * 100 << "%" 
+            float m_prob = std::get<0>(move_list[k]);
+            float m_prior = std::get<1>(move_list[k]);
+            int m_id = std::get<2>(move_list[k]);
+            std::cout << "  Move " << m_id 
+                      << " | Model: " << std::fixed << std::setprecision(24) << m_prob * 100 << "%"
+                      << " | Raw Prior: " << std::fixed << std::setprecision(24) << m_prior * 100 << "%"
                       << std::endl;
         }
     }
@@ -493,7 +494,6 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
 
   return {value, final_policy, board_probs, move_probs};
 }
-// =====================================================================================
 
 ModelImpl::ModelImpl(const ModelConfig& config, const std::string& device)
     : device_(device),

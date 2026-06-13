@@ -260,22 +260,19 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
 
   // ==================== Operable Boards Section ====================
   int op_fill = 0;
+  std::unordered_map<BoardId, int> board_prob_id;
   for (const auto& [board_id, move_list] : operable_boards_) {
     if (op_fill >= kMaxOperableBoards) break;
     
     // Convert global board ID to local tensor index
-    int local_id = board_local_id.at(board_id);
-    values[ptr++] = static_cast<float>(local_id);
+    values[ptr++] = static_cast<float>(board_local_id.at(board_id));
     
     // Board selection prior probability 
 	bool is_optional_line = std::any_of(move_list.begin(), move_list.end(), [](uint64_t x) {
         return !!(x & 4);
     });
-	bool has_non_branch_move = std::any_of(move_list.begin(), move_list.end(), [](uint64_t x) {
-        return !(x & 2);
-    });
-    values[ptr++] = is_optional_line ? 0.01f : 
-	                has_non_branch_move ? 1.0f : 0.5f;
+    values[ptr] = is_optional_line ? 0.01f : 1.0f;
+	board_prob_id[board_id] = ptr++;
     op_fill++;
   }
   // Fill remaining operable board slots with invalid markers
@@ -292,10 +289,11 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
       auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
       if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) { //Pass or checking or being-checked
         values[ptr + a] = 1.0f;
+		values[board_prob_id.at(EncodeBoardId(u0, v0))] = 1.0f;  // fix board prob
       } else {
         values[ptr + a] = 0.5f;
-        if (flags & 4) values[ptr + a] = 0.01f; // optional
-        if (flags & 2) values[ptr + a] = 0.0001f; // branch
+        if (flags & 4) values[ptr + a] *= 0.07f; // optional
+        if (flags & 2) values[ptr + a] *= 0.00f; // branch
       }
     }
   }
@@ -308,11 +306,10 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
     int base = board_base + local_idx * (2 + kNumPieceChannels * kBoardSize * kBoardSize);
     
     // Extract u and v coordinates from board ID (high 8 bits = u, low 8 bits = v)
-    int u = (bid >> 8) & 0xFF;
-    int v = bid & 0xFF;
+    auto [u, v] = DecodeBoardId(bid);
     values[base + 0] = static_cast<float>(u);
     values[base + 1] = static_cast<float>(v);
-    
+
     // Write bitboard data (offset by 2 floats for coordinates)
     int bb_base = base + 2;
     for (int c = 0; c < kNumPieceChannels && c < bitboards.size(); c++) {
