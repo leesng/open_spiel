@@ -388,6 +388,12 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       operable_board_logits,
       -1e20 * torch::ones_like(operable_board_logits)
   );
+  
+  // ========== 2. Cascade pruning: prune all moves belonging to pruned boards ==========
+  torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
+  constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
+  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));//(1e-40));
+  
 //#if 0
   // ========== 1. Board level soft pruning & generate board pruning mask ==========
   float max_board_logit = operable_board_logits.max().item<float>();
@@ -398,10 +404,7 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       -1e9 * torch::ones_like(operable_board_logits)
   );
 //#endif
-  // ========== 2. Cascade pruning: prune all moves belonging to pruned boards ==========
-  torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
-  constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
-  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));//(1e-40));
+
 //#if 0
   // Force mask all moves from pruned boards
   operable_move_logits = torch::where(
@@ -413,7 +416,7 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
   // ========== 3. Preserve original move level soft pruning ==========
   auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
   operable_move_logits = torch::where(
-    operable_move_logits > max_per_board - 5.0f,
+    operable_move_logits > max_per_board - 10.0f,
     operable_move_logits,
     -1e9 * torch::ones_like(operable_move_logits)
   );
