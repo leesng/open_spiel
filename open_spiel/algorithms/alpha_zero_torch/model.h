@@ -204,7 +204,7 @@ class AGHBoardEncoderImpl : public torch::nn::Module {
   torch::nn::Conv2d conv1_ = nullptr;
   torch::nn::Conv2d conv2_ = nullptr;
   torch::nn::ReLU relu_ = nullptr;
-  torch::nn::Linear coord_proj_ = nullptr; // Coordinate projection layer
+  torch::nn::Linear coord_proj_ = nullptr;
   int embedding_dim_;
 };
 TORCH_MODULE(AGHBoardEncoder);
@@ -229,13 +229,14 @@ class AGHHierarchicalHeadImpl : public torch::nn::Module {
   std::vector<torch::Tensor> forward(
     torch::Tensor all_node_features,
     torch::Tensor global_feature,
-    torch::Tensor operable_board_indices,  // Indices of operable boards in full node list [kMaxOperableBoards]
-    torch::Tensor operable_board_priors,   // Board selection prior probabilities [num_operable]
-    torch::Tensor legal_move_mask,        // Legal move mask [kMaxOperableBoards, kMaxMovesPerBoard]
-    int num_operable_boards               // Current actual number of operable boards
+    torch::Tensor operable_board_indices,
+    torch::Tensor operable_board_priors,
+    torch::Tensor legal_move_mask,
+    int num_operable_boards,
+    bool training = false
   );
  private:
-  torch::nn::MultiheadAttention cross_board_attn_ = nullptr; // Cross-board multi-head attention
+  torch::nn::MultiheadAttention cross_board_attn_ = nullptr;
   torch::nn::Linear value_head_ = nullptr;
   torch::nn::Linear board_selector_head_ = nullptr;
   torch::nn::Linear move_selector_head_ = nullptr;
@@ -254,7 +255,7 @@ class ModelImpl : public torch::nn::Module {
                                     torch::Tensor value_targets);
 
  private:
-  std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask);
+  std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask, bool training = false);
   torch::nn::ModuleList layers_;
 
   // AlphaGateau hierarchical sub-modules
