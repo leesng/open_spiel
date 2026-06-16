@@ -6,6 +6,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <algorithm>
 #include <vector>
 #include <functional>
 #include <iostream>

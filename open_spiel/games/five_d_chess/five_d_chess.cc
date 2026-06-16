@@ -48,7 +48,7 @@ std::unique_ptr<State> FiveDChessGame::NewInitialState() const {
 }
 
 int FiveDChessGame::MaxChanceOutcomes() const {
-  return 1;
+  return 0;
 }
 
 int FiveDChessGame::NumPlayers() const {
@@ -113,34 +113,25 @@ std::vector<Action> FiveDChessState::LegalActions() const {
   if (IsTerminal()) return {};
 
   std::vector<Action> result;
-  int board_idx = 0;
-  for (const auto& [board_id, move_list] : operable_boards_) {
-    int move_idx = 0;
-    for (MoveId moveid : move_list) {
-      auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-      if ((flags & 1)) {
-        result.push_back(static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx));
-      }
-      move_idx++;
-    }
-    board_idx++;
+  for (int board_idx = 0; board_idx < std::min(kMaxOperableBoards, (int)operable_boards_.size()); board_idx++) {
+	  const auto& [board_id, move_list] = operable_boards_[board_idx];
+	  for (int move_idx = 0; move_idx < std::min(kMaxMovesPerBoard, (int)move_list.size()); move_idx++) {
+		  result.push_back(static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx));
+	  }
   }
   return result;
 }
 
 // Encode MoveId to Action by real-time matching
 Action FiveDChessState::EncodeAction(MoveId moveid) const {
-  int board_idx = 0;
-  for (const auto& [board_id, move_list] : operable_boards_) {
-    int move_idx = 0;
-    for (MoveId mid : move_list) {
-      auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(mid);
-      if (mid == moveid) {
-        return static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx);
-      }
-      move_idx++;
-    }
-    board_idx++;
+	
+  for (int board_idx = 0; board_idx < std::min(kMaxOperableBoards, (int)operable_boards_.size()); board_idx++) {
+	  const auto& [board_id, move_list] = operable_boards_[board_idx];
+	  for (int move_idx = 0; move_idx < std::min(kMaxMovesPerBoard, (int)move_list.size()); move_idx++) {
+		  if (move_list[move_idx] == moveid) {
+			return static_cast<Action>(board_idx * kMaxMovesPerBoard + move_idx);
+		  }
+	  }
   }
   return kInvalidAction;
 }
@@ -150,8 +141,8 @@ MoveId FiveDChessState::DecodeAction(Action action) const {
   int board_idx = action / kMaxMovesPerBoard;
   int move_idx = action % kMaxMovesPerBoard;
 
-  if (board_idx < operable_boards_.size()) {
-    if (move_idx < operable_boards_[board_idx].second.size()) {
+  if (board_idx < std::min(kMaxOperableBoards, (int)operable_boards_.size())) {
+    if (move_idx < std::min(kMaxMovesPerBoard, (int)operable_boards_[board_idx].second.size())) {
       return operable_boards_[board_idx].second[move_idx];
     }
   }
@@ -242,14 +233,14 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   std::fill(values.begin(), values.end(), 0.0f);
   int ptr = 0;
 
-  int total_boards = all_boards_.size();
-  int num_operable = operable_boards_.size();
-  int num_edges = boards_edges_.size();
+  int total_boards = std::min(kMaxRuntimeBoards, (int)all_boards_.size());
+  int num_operable = std::min(kMaxOperableBoards, (int)operable_boards_.size());
+  int num_edges = std::min(kMaxRuntimeEdges, (int)boards_edges_.size());
 
   std::unordered_map<BoardId, int> board_local_id;
-  int local_idx = 0;
-  for (const auto& [bid, _] : all_boards_) {
-    board_local_id[bid] = local_idx++;
+  for (int local_idx = 0; local_idx < all_boards_.size(); local_idx++) {
+    const auto& [bid, _] = all_boards_[local_idx];
+    board_local_id[bid] = local_idx;
   }
 
   // ==================== Metadata Section ====================
@@ -259,50 +250,58 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   values[ptr++] = static_cast<float>(current_player_); // Current player (0=White, 1=Black)
 
   // ==================== Operable Boards Section ====================
-  int op_fill = 0;
-  std::unordered_map<BoardId, int> board_prob_id;
-  for (const auto& [board_id, move_list] : operable_boards_) {
-    if (op_fill >= kMaxOperableBoards) break;
-    
-    // Convert global board ID to local tensor index
-    values[ptr++] = static_cast<float>(board_local_id.at(board_id));
-    
-    // Board selection prior probability 
-	bool is_optional_line = std::any_of(move_list.begin(), move_list.end(), [](uint64_t x) {
-        return !!(x & 4);
-    });
-    values[ptr] = is_optional_line ? 0.01f : 1.0f;
-	board_prob_id[board_id] = ptr++;
-    op_fill++;
-  }
+  for (int op_fill = 0; op_fill < kMaxOperableBoards; op_fill++) {
+    if (op_fill < operable_boards_.size()) {
+      // Convert global board ID to local tensor index
+	  const auto& [board_id, move_list] = operable_boards_[op_fill];
+      values[ptr++] = static_cast<float>(board_local_id.at(board_id));
+      values[ptr++] = 1.0f;
+    }
   // Fill remaining operable board slots with invalid markers
-  for (; op_fill < kMaxOperableBoards; ++op_fill) {
-    values[ptr++] = -1.0f;  // Invalid board index
-    values[ptr++] = 0.0f;   // Zero prior for invalid boards
+    else {
+      values[ptr++] = -1.0f;  // Invalid board index
+      values[ptr++] = 0.0f;   // Zero prior for invalid boards
+    }
   }
 
   // ==================== Legal Move Mask Section ====================
-  auto legal_actions = LegalActions();
-  for (Action a : legal_actions) {
-    if (a >= 0 && a < kNumDistinctActions) {
-      MoveId moveid = DecodeAction(a);
-      auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-      if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) { //Pass or checking or being-checked
-        values[ptr + a] = 1.0f;
-		values[board_prob_id.at(EncodeBoardId(u0, v0))] = 1.0f;  // fix board prob
-      } else {
-        values[ptr + a] = 0.5f;
-        if (flags & 4) values[ptr + a] *= 0.07f; // optional
-        if (flags & 2) values[ptr + a] *= 0.00f; // branch
-      }
+  for (int board_idx = 0; board_idx < num_operable; board_idx++) {
+    const auto& [board_id, move_list] = operable_boards_[board_idx];
+    for (int move_idx = 0; move_idx < std::min(kMaxMovesPerBoard, (int)move_list.size()); move_idx++) {
+        Action a = board_idx * kMaxMovesPerBoard + move_idx;
+        MoveId moveid = move_list[move_idx];
+        auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
+		bool is_optional_line = false, has_check_move = false;
+        if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) {
+            values[ptr + a] = 1.0f;
+            // need fix board prob
+			has_check_move = true;
+        } else {
+            values[ptr + a] = 0.5f;
+            if (flags & 4) {
+				values[ptr + a] *= 0.07f; // optional
+				is_optional_line = true;
+			}
+            if (flags & 2) {
+				values[ptr + a] *= 0.0f; // branch
+			}
+        }
+		// overwrite board prob
+		if (has_check_move) {
+			values[4 + board_idx * 2 + 1] = 1.0f;
+		} else if (is_optional_line) {
+			values[4 + board_idx * 2 + 1] = 0.01f;
+		} else {
+			values[4 + board_idx * 2 + 1] = 1.0f;
+		}
     }
   }
   ptr += kNumDistinctActions;
 
   // ==================== Board Data Section ====================
   int board_base = ptr;
-  local_idx = 0;
-  for (const auto& [bid, bitboards] : all_boards_) {
+  for (int local_idx = 0; local_idx < total_boards; local_idx++) {
+    const auto& [bid, bitboards] = all_boards_[local_idx];
     int base = board_base + local_idx * (2 + kNumPieceChannels * kBoardSize * kBoardSize);
     
     // Extract u and v coordinates from board ID (high 8 bits = u, low 8 bits = v)
@@ -324,17 +323,16 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
         }
       }
     }
-    local_idx++;
+
   }
   ptr += total_boards * (2 + kNumPieceChannels * kBoardSize * kBoardSize);
 
   // ==================== Graph Edges Section ====================
-  int edge_fill = 0;
-  for (const auto& [src_bid, dst_bid] : boards_edges_) {
-    if (edge_fill >= kMaxRuntimeEdges) break;
+  for (int edge_fill = 0; edge_fill < num_edges; edge_fill++) {
+    const auto& [src_bid, dst_bid] = boards_edges_[edge_fill];
     values[ptr++] = static_cast<float>(board_local_id.at(src_bid));
     values[ptr++] = static_cast<float>(board_local_id.at(dst_bid));
-    edge_fill++;
+
   }
   return;
 }
@@ -378,13 +376,40 @@ void FiveDChessState::DoApplyAction(Action action) {
   if (it->second.size() > kMaxMovesPerBoard ||
       all_boards_.size() > kMaxRuntimeBoards ||
       operable_boards_.size() > kMaxOperableBoards ||
-      boards_edges_.size() > kMaxRuntimeEdges) {
-    ms = match_status_t::STALEMATE;
-	if (is_first_real_selfplay_game_) std::cout << "max_board_mvs_cnt=" << it->second.size()
+      boards_edges_.size() > kMaxRuntimeEdges ||
+	  num_moves_ + 1 >= kMaxGameLength) {
+	int wc = 0, bc = 0;
+	auto [l_min, l_max] = s->get_lines_range();
+    auto [active_min, active_max] = s->get_active_range();
+	if (l_min < active_min) {
+		ms = match_status_t::WHITE_WINS;
+	}else if (active_min < l_max){
+		ms = match_status_t::BLACK_WINS;
+	}else {
+		for(int l = l_min; l <= l_max; l++) {
+			auto [t, c] = s->get_timeline_end(l);
+			if (c) bc++;
+			else wc++;
+		}
+		if (wc > bc) ms = match_status_t::WHITE_WINS;
+		else if (wc < bc) ms = match_status_t::BLACK_WINS;
+		else ms = match_status_t::STALEMATE;
+	}
+    
+	if (is_first_real_selfplay_game_) 
+		std::cout << "max_board_mvs_cnt=" << it->second.size()
 			<< ",all_boards=" << all_boards_.size()
 			<< ",operable_boards=" << operable_boards_.size()
 			<< ",boards_edges=" << boards_edges_.size()
-			<< ",force ms=" << ms << std::endl;
+			<< ",num_moves_=" << num_moves_ 
+			<< ",l_min=" << l_min
+			<< ",l_max=" << l_max 
+			<< ",active_min=" << active_min
+			<< ",active_max=" << active_max 
+			<< ",wc=" << wc
+			<< ",bc=" << bc 
+			<< ",force ms=" << ms
+			<< std::endl;
     return;
   }
 
@@ -395,11 +420,11 @@ void FiveDChessState::DoApplyAction(Action action) {
     }
   }
   num_moves_++;
-  if (num_moves_ >= kMaxGameLength) {
+  /*if (num_moves_ >= kMaxGameLength) {
 	ms = match_status_t::STALEMATE;
 	if (is_first_real_selfplay_game_) std::cout << "num_moves_=" << num_moves_
 		<< ",force2 ms=" << ms << std::endl;
-  }
+  }*/
 }
 
 }  // namespace five_d_chess
