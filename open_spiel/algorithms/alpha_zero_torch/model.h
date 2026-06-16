@@ -37,7 +37,9 @@ constexpr int kEmbeddingDim = 128;         // Node feature embedding dimension
 constexpr int kMaxRuntimeBoards = 1 << 9; // Maximum active boards during runtime
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
 constexpr int kTotalBoardDataSize = 2 + kBoardInputChannels * kBoardHeight * kBoardWidth;
-	
+
+constexpr float kSoftPruneThreshold = 7.0f;
+
 // ========================================================================
 
 struct ResInputBlockConfig {
@@ -232,8 +234,7 @@ class AGHHierarchicalHeadImpl : public torch::nn::Module {
     torch::Tensor operable_board_indices,
     torch::Tensor operable_board_priors,
     torch::Tensor legal_move_mask,
-    int num_operable_boards,
-    bool training = false
+    int num_operable_boards
   );
  private:
   torch::nn::MultiheadAttention cross_board_attn_ = nullptr;
@@ -255,7 +256,7 @@ class ModelImpl : public torch::nn::Module {
                                     torch::Tensor value_targets);
 
  private:
-  std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask, bool training = false);
+  std::vector<torch::Tensor> forward_(torch::Tensor x, torch::Tensor mask);
   torch::nn::ModuleList layers_;
 
   // AlphaGateau hierarchical sub-modules

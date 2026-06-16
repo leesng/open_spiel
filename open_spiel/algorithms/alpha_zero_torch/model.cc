@@ -295,44 +295,53 @@ AGHGATEAUImpl::AGHGATEAUImpl(int embedding_dim)
 }
 
 torch::Tensor AGHGATEAUImpl::forward(torch::Tensor nodes, torch::Tensor edge_index) {
-  torch::Tensor src = edge_index[0];
-  torch::Tensor dst = edge_index[1];
+  // 空边直接返回原特征，避免空张量操作异常
+  if (edge_index.size(1) == 0) {
+    return nodes;
+  }
+
+  torch::Tensor src = edge_index[0].to(torch::kLong);
+  torch::Tensor dst = edge_index[1].to(torch::kLong);
+  int64_t num_nodes = nodes.size(0);
+  int64_t num_edges = edge_index.size(1);
+
   torch::Tensor sent_nodes = nodes.index({src});
   torch::Tensor dst_nodes = nodes.index({dst});
 
-  // Edge feature computation
+  // 边特征融合 + 注意力分数计算（标量，每个边一个分数）
   torch::Tensor edge_feat = sent_nodes + dst_nodes;
-  // Attention score computation
   torch::Tensor attn_logits = leaky_relu_->forward(attn_lin_->forward(edge_feat));
-  
-  // Numerically stable segmented softmax (optimized for large node counts)
-  // 1. Node feature buffer [N, D]
-  torch::Tensor max_buffer = torch::zeros_like(nodes);
-  // Get feature dimension D
-  int64_t feat_dim = max_buffer.size(1);
+  // attn_logits 形状 [E, 1]，压平成 [E]
+  attn_logits = attn_logits.squeeze(-1);
 
-  // 2. Flatten edge attention logits to 1D array [E]
-  torch::Tensor attn_e = attn_logits.flatten();
+  // ========== 数值稳定的分段softmax（全版本兼容，不用index_reduce_）==========
+  // 1. 计算每个目标节点的最大注意力分数（轻量循环，节点数≤512无性能问题）
+  torch::Tensor max_per_node = torch::full({num_nodes}, -1e20f, nodes.options());
+  for (int64_t e = 0; e < num_edges; ++e) {
+    int64_t d = dst[e].item<int64_t>();
+    float val = attn_logits[e].item<float>();
+    if (val > max_per_node[d].item<float>()) {
+      max_per_node[d] = val;
+    }
+  }
 
-  // 3. Explicit dimension expansion for C++ compatibility (avoid implicit broadcast)
-  attn_e = attn_e.unsqueeze(1).expand({-1, feat_dim});
+  // 2. 每个边减去对应目标节点的最大值，保证数值稳定
+  torch::Tensor max_each_edge = max_per_node.index({dst});
+  attn_logits = attn_logits - max_each_edge;
 
-  // 4. Cast index to long type to prevent assertion failure
-  torch::Tensor dst_long = dst.to(torch::kLong);
-
-  // 5. Safe index addition
-  max_buffer.index_add_(0, dst_long, attn_e);
-
-  // 6. Standard softmax calculation
-  torch::Tensor max_logits = max_buffer.index({dst_long});
-
-  attn_logits = attn_logits - max_logits;
+  // 3. 计算指数并按目标节点求和
   torch::Tensor exp_attn = torch::exp(attn_logits);
-  torch::Tensor sum_exp = torch::zeros_like(nodes).index_add_(0, dst_long, exp_attn).index({dst_long});
-  torch::Tensor attn_weights = exp_attn / (sum_exp + 1e-8);
+  torch::Tensor sum_exp = torch::zeros({num_nodes}, nodes.options());
+  sum_exp.index_add_(0, dst, exp_attn);
+  torch::Tensor sum_each_edge = sum_exp.index({dst});
 
-  // Message aggregation across graph edges
-  return torch::zeros_like(nodes).index_add_(0, dst_long, sent_nodes * attn_weights);
+  // 4. 归一化得到注意力权重
+  torch::Tensor attn_weights = exp_attn / (sum_each_edge + 1e-8f);
+  // 恢复维度 [E, 1] 用于和节点特征广播相乘
+  attn_weights = attn_weights.unsqueeze(-1);
+
+  // 消息聚合：按目标节点累加加权后的源节点特征
+  return torch::zeros_like(nodes).index_add_(0, dst, sent_nodes * attn_weights);
 }
 
 AGHHierarchicalHeadImpl::AGHHierarchicalHeadImpl(int embedding_dim) {
@@ -351,151 +360,103 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
     torch::Tensor operable_board_indices,
     torch::Tensor operable_board_priors,
     torch::Tensor legal_move_mask,
-    int num_operable_boards,
-    bool training) {
-  // 1. Position value prediction
+    int num_operable_boards) {
+
+  // 强制边界截断：双保险防越界
+  num_operable_boards = std::min(num_operable_boards, kMaxOperableBoards);
+  
+  // 1. 局面价值预测
   torch::Tensor value = torch::tanh(value_head_->forward(global_feature));
 
-  // Initialize fixed-size logit tensors
-  torch::Tensor full_board_logits = torch::full({kMaxOperableBoards}, -1e9, all_node_features.options());
-  torch::Tensor full_move_logits = torch::full({kMaxOperableBoards, kMaxMovesPerBoard}, -1e9, all_node_features.options());
+  // 初始化固定大小logit张量
+  torch::Tensor full_board_logits = torch::full({kMaxOperableBoards}, -1e9f, all_node_features.options());
+  torch::Tensor full_move_logits = torch::full({kMaxOperableBoards, kMaxMovesPerBoard}, -1e9f, all_node_features.options());
 
-  // Reshape and slice legal move mask
-  auto move_priorities_2d = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard});
-  auto move_priorities = move_priorities_2d.narrow(0, 0, num_operable_boards);
+  // 零棋盘兜底
+  if (num_operable_boards <= 0) {
+    torch::Tensor flat_logits = full_board_logits.unsqueeze(1) + full_move_logits;
+    flat_logits = flat_logits.flatten().unsqueeze(0);
+    torch::Tensor board_probs = torch::softmax(full_board_logits, -1);
+    torch::Tensor move_probs = torch::softmax(full_move_logits, -1);
+    return {value, flat_logits, board_probs, move_probs};
+  }
 
-  // Parse board index information from game side
-  torch::Tensor valid_board_mask = operable_board_indices != -1;
-  torch::Tensor real_board_indices = operable_board_indices.to(torch::kLong);
+  // 切片合法走法掩码
+  auto move_priorities = legal_move_mask.view({kMaxOperableBoards, kMaxMovesPerBoard})
+                             .narrow(0, 0, num_operable_boards);
+
+  // 解析棋盘索引
+  torch::Tensor valid_board_mask = operable_board_indices.narrow(0, 0, num_operable_boards) != -1;
+  torch::Tensor real_board_indices = operable_board_indices.narrow(0, 0, num_operable_boards).to(torch::kLong);
+  real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
+
+  // 防越界：过滤超出总节点数的索引
+  valid_board_mask = valid_board_mask & (real_board_indices < all_node_features.size(0));
   real_board_indices = torch::where(valid_board_mask, real_board_indices, torch::zeros_like(real_board_indices));
 
   torch::Tensor operable_node_features = all_node_features.index({real_board_indices});
 
-  // Cross-board multi-head attention
+  // 跨棋盘多头注意力 + 残差
   torch::Tensor attn_input = operable_node_features.unsqueeze(1);
   auto attn_result = cross_board_attn_->forward(attn_input, attn_input, attn_input);
-  torch::Tensor attn_output = std::get<0>(attn_result);
-  operable_node_features = attn_output.squeeze(1) + operable_node_features;
+  operable_node_features = std::get<0>(attn_result).squeeze(1) + operable_node_features;
 
-  // Calculate board logits and add prior weight
+  // 棋盘选择logits + 先验加权
   torch::Tensor operable_board_logits = board_selector_head_->forward(operable_node_features).squeeze(-1);
   constexpr float PRIOR_BOARD_STRENGTH = 2.0f;
-  operable_board_logits = operable_board_logits + PRIOR_BOARD_STRENGTH * torch::log(operable_board_priors.clamp_min(1e-8));
+  operable_board_logits = operable_board_logits + 
+      PRIOR_BOARD_STRENGTH * torch::log(operable_board_priors.narrow(0, 0, num_operable_boards).clamp_min(1e-8f));
 
-  // Mask out invalid board entries
+  // 屏蔽无效棋盘
   operable_board_logits = torch::where(
       valid_board_mask,
       operable_board_logits,
-      -1e20 * torch::ones_like(operable_board_logits)
+      -1e20f * torch::ones_like(operable_board_logits)
   );
 
-  // Calculate move logits base
+  // 走法选择logits + 先验加权
   torch::Tensor operable_move_logits = move_selector_head_->forward(operable_node_features);
   constexpr float PRIOR_MOVE_STRENGTH = 10.0f;
-  operable_move_logits = operable_move_logits + PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8));
+  operable_move_logits = operable_move_logits + 
+      PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8f));
 
-  // Soft pruning: ONLY apply in inference mode, disabled during training
-  if (!training) {
-    // 1. Board level soft pruning & generate pruning mask
-    float max_board_logit = operable_board_logits.max().item<float>();
-    torch::Tensor board_cut_mask = operable_board_logits > (max_board_logit - 5.0f);
-    operable_board_logits = torch::where(
-        board_cut_mask,
-        operable_board_logits,
-        -1e9 * torch::ones_like(operable_board_logits)
-    );
+  // ========== 统一软剪枝（训练/推理全程生效）==========
+  // 1. 棋盘级软剪枝
+  float max_board_logit = operable_board_logits.max().item<float>();
+  torch::Tensor board_cut_mask = operable_board_logits > (max_board_logit - kSoftPruneThreshold);
+  operable_board_logits = torch::where(
+      board_cut_mask,
+      operable_board_logits,
+      -1e9f * torch::ones_like(operable_board_logits)
+  );
 
-    // 2. Cascade pruning: mask all moves on pruned boards
-    operable_move_logits = torch::where(
-        board_cut_mask.unsqueeze(1),
-        operable_move_logits,
-        -1e9 * torch::ones_like(operable_move_logits)
-    );
-
-    // 3. Move level soft pruning
-    auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
-    operable_move_logits = torch::where(
-      operable_move_logits > max_per_board - 5.0f,
+  // 2. 级联剪枝：被剪棋盘的所有走法同步屏蔽
+  operable_move_logits = torch::where(
+      board_cut_mask.unsqueeze(1),
       operable_move_logits,
-      -1e9 * torch::ones_like(operable_move_logits)
-    );
-  }
+      -1e9f * torch::ones_like(operable_move_logits)
+  );
 
-  // Fill logits into fixed-size tensors
+  // 3. 走法级软剪枝
+  auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
+  operable_move_logits = torch::where(
+    operable_move_logits > max_per_board - kSoftPruneThreshold,
+    operable_move_logits,
+    -1e9f * torch::ones_like(operable_move_logits)
+  );
+
+  // 填充到固定大小张量
   full_board_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_board_logits);
   full_move_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_move_logits);
 
-  // Compute probability distribution for debug and inference output
-  torch::Tensor board_probs = torch::softmax(full_board_logits, -1);
-  torch::Tensor move_probs = torch::softmax(full_move_logits, -1);
-  torch::Tensor final_policy = board_probs.unsqueeze(1) * move_probs;
-  final_policy = final_policy.flatten().unsqueeze(0);
-
-  // Compute flat policy logits for loss calculation (log(a*b) = log a + log b)
+  // 联合logits（原始未归一化，用于损失计算）
   torch::Tensor flat_logits = full_board_logits.unsqueeze(1) + full_move_logits;
   flat_logits = flat_logits.flatten().unsqueeze(0);
 
-// ==================== Enhanced Debug Print ====================
-#ifdef DEBUG_PROBABILITY
-{
-    std::cout << "\n======================================" << std::endl;
-    std::cout << "=== PROBABILITY DISTRIBUTION DEBUG ===" << std::endl;
-    std::cout << "Mode: " << (training ? "TRAINING" : "INFERENCE") << std::endl;
-    std::cout << "Total operable boards: " << num_operable_boards << std::endl;
-    std::cout << "Global value prediction: " << value.item<float>() << std::endl;
-    std::cout << "--------------------------------------" << std::endl;
-    
-    float total_board_prob = 0.0f;
-    for (int i = 0; i < num_operable_boards; ++i) {
-        float board_prob = board_probs[i].item<float>();
-        float board_raw_prior = operable_board_priors[i].item<float>();
-        int board_idx = (int)real_board_indices[i].item<int64_t>();
-        total_board_prob += board_prob;
+  // 概率分布（用于调试和推理输出）
+  torch::Tensor board_probs = torch::softmax(full_board_logits, -1);
+  torch::Tensor move_probs = torch::softmax(full_move_logits, -1);
 
-        std::cout << "Board " << i 
-                  << " (ID:" << board_idx 
-                  << ") | Model Prob: " << std::fixed << std::setprecision(4) << board_prob * 100 << "%"
-                  << " | Raw Prior: " << std::fixed << std::setprecision(4) << board_raw_prior * 100 << "%"
-                  << std::endl;
-        
-        auto move_probs_this_board = move_probs[i];
-        auto move_logits_this_board = full_move_logits[i];
-        auto move_raw_prior_this_board = move_priorities[i];
-
-        std::cout << "  Logits range: min=" << move_logits_this_board.min().item<float>()
-                  << ", max=" << move_logits_this_board.max().item<float>() << std::endl;
-		  
-        std::vector<std::tuple<float, float, int>> move_list;
-        for (int j = 0; j < kMaxMovesPerBoard; ++j) {
-            float move_prob = move_probs_this_board[j].item<float>();
-            float move_raw_prior = move_raw_prior_this_board[j].item<float>();
-            if (move_prob > 1e-40) {
-                move_list.emplace_back(move_prob, move_raw_prior, j);
-            }
-        }
-        
-        std::sort(move_list.rbegin(), move_list.rend());
-        
-        int print_count = std::min(100, (int)move_list.size());
-        for (int k = 0; k < print_count; ++k) {
-            float m_prob = std::get<0>(move_list[k]);
-            float m_prior = std::get<1>(move_list[k]);
-            int m_id = std::get<2>(move_list[k]);
-            std::cout << "  Move " << m_id 
-                      << " | Model: " << std::fixed << std::setprecision(24) << m_prob * 100 << "%"
-                      << " | Raw Prior: " << std::fixed << std::setprecision(24) << m_prior * 100 << "%"
-                      << std::endl;
-        }
-    }
-    
-    std::cout << "--------------------------------------" << std::endl;
-    std::cout << "Total board probability: " << std::fixed << std::setprecision(6) << total_board_prob << std::endl;
-    std::cout << "Final policy sum: " << std::fixed << std::setprecision(6) << final_policy.sum().item<float>() << std::endl;
-    std::cout << "======================================\n" << std::endl;
-}
-#endif
-
-  // Return order: [value, policy_logits, board_probs, move_probs]
   return {value, flat_logits, board_probs, move_probs};
 }
 
@@ -575,7 +536,7 @@ ModelImpl::ModelImpl(const ModelConfig& config, const std::string& device)
 
 std::vector<torch::Tensor> ModelImpl::forward(torch::Tensor x, torch::Tensor mask) {
   // Inference mode: soft pruning enabled, output probabilities
-  std::vector<torch::Tensor> output = this->forward_(x, mask, false);
+  std::vector<torch::Tensor> output = this->forward_(x, mask);
   
   // Validate output shape to match vpnet.cc requirements
   torch::Tensor value = output[0];
@@ -602,7 +563,7 @@ std::vector<torch::Tensor> ModelImpl::losses(torch::Tensor inputs,
                                              torch::Tensor policy_targets,
                                              torch::Tensor value_targets) {
   // Training mode: soft pruning disabled, compute loss on raw logits
-  std::vector<torch::Tensor> output = this->forward_(inputs, masks, true);
+  std::vector<torch::Tensor> output = this->forward_(inputs, masks);
 
   torch::Tensor value_predictions = output[0];
   torch::Tensor policy_logits = output[1];
@@ -646,7 +607,7 @@ std::vector<torch::Tensor> ModelImpl::losses(torch::Tensor inputs,
   return {policy_loss, value_loss, l2_regularization_loss};
 }
 
-std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor mask, bool training) {
+std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor mask) {
   std::vector<torch::Tensor> output;
   if (this->nn_model_ == "resnet") {
     for (int i = 0; i < num_torso_blocks_ + 2; i++) {
@@ -753,7 +714,7 @@ std::vector<torch::Tensor> ModelImpl::forward_(torch::Tensor x, torch::Tensor ma
     // 10. Hierarchical output head forward pass, Pass training flag to head
     auto head_output = ag_hier_output_->forward(
         node_features, global_feature, operable_board_indices, 
-        operable_board_priors, legal_move_mask, num_operable, training);
+        operable_board_priors, legal_move_mask, num_operable);
     
     torch::Tensor value = head_output[0];
     torch::Tensor policy_logits = head_output[1];
