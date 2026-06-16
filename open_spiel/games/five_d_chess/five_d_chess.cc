@@ -383,7 +383,7 @@ void FiveDChessState::DoApplyAction(Action action) {
     auto [active_min, active_max] = s->get_active_range();
 	if (l_min < active_min) {
 		ms = match_status_t::WHITE_WINS;
-	}else if (active_min < l_max){
+	}else if (active_max < l_max){
 		ms = match_status_t::BLACK_WINS;
 	}else {
 		for(int l = l_min; l <= l_max; l++) {
