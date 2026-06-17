@@ -98,7 +98,6 @@ public:
     
     template<bool SHOW_UMOVE=false>
     std::vector<boards_info_t> get_boards() const;
-    std::vector<std::shared_ptr<board>> get_newboard_by_move(vec4 p, vec4 q, bool player, piece_t promote_to = QUEEN_W) const;
 	void get_one_board_and_edge(int u, int v, std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards, std::vector<std::pair<int,int>>& boards_edges) const;
 	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
 	template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves(bool allow_pass = false) const;

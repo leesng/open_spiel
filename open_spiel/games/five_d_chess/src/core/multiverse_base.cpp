@@ -181,51 +181,6 @@ std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards() const
     return result;
 }
 
-std::vector<std::shared_ptr<board>> multiverse::get_newboard_by_move(vec4 p, vec4 q, bool player, piece_t pto) const
-{
-	const std::shared_ptr<board>& b_ptr = get_board(p.l(), p.t(), player);
-	piece_t pic = static_cast<piece_t>(piece_name(b_ptr->get_piece(p.xy())));
-	const std::shared_ptr<board>& x_ptr = get_board(q.l(), q.t(), player);
-	std::shared_ptr<board> new_board = nullptr;
-	std::shared_ptr<board> new_board2 = nullptr;
-	std::vector<std::shared_ptr<board>> result;
-	
-	if (b_ptr == x_ptr) {
-        // promotion to
-        if ((b_ptr->lpawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
-            pic = player ? to_black(pto) : pto;
-        }
-		vec4 d = q - p;
-		if((b_ptr->lpawn() & pmask(p.xy())) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE) {
-			// en passant
-			new_board = b_ptr->replace_piece(ppos(q.x(), p.y()), NO_PIECE);
-		} else if((b_ptr->king() & pmask(p.xy())) && abs(d.x()) > 1) {
-			// castling
-			int rook_x1 = d.x() < 0 ? 0 : (size_x - 1); //rook's original x coordinate
-			int rook_x2 = q.x() + (d.x() < 0 ? 1 : -1); //rook's new x coordinate
-			new_board = b_ptr->move_piece(ppos(rook_x1, p.y()), ppos(rook_x2, q.y()));
-		} else {
-			// normal move
-			new_board = b_ptr;
-		}
-		new_board = new_board->replace_piece(p.xy(), NO_PIECE);
-		new_board = new_board->replace_piece(q.xy(), pic);
-		result.push_back(new_board);
-	} else  {
-        // promotion (only brawns can do)
-        if ((b_ptr->lrawn() & pmask(p.xy())) && (q.y() == 0 || q.y() == size_y - 1)) {
-            pic = player ? to_black(pto) : pto;
-        }
-		// superphysical move
-		new_board = b_ptr->replace_piece(p.xy(), NO_PIECE);
-		new_board2 = x_ptr->replace_piece(q.xy(), pic);
-		result.push_back(new_board);
-		result.push_back(new_board2);
-	}
-
-	return result;
-}
-
 void multiverse::get_one_board_and_edge(int u, int v, 
 	std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards,
 	std::vector<std::pair<int,int>>& boards_edges) const
@@ -321,22 +276,6 @@ template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> multiver
 					// out of range???
 					bool out_of_range = outofrange(p, q, COLOR);
 					if (out_of_range) {
-						continue;
-					}
-
-					// been attacked
-					auto nbs = get_newboard_by_move(p, q, COLOR);
-					bool been_attacked = false;
-					for (int i = 0; been_attacked == false && i < static_cast<int>(nbs.size()); ++i) {
-						for(int pos2 : marked_pos(nbs[i]->royal() & nbs[i]->friendly<COLOR>())) {
-							if(nbs[i]->is_under_attack(pos2, COLOR)) {
-								//std:: count << "physical check" << std::endl;
-								been_attacked = true;
-								break;
-							}
-						}
-					}
-					if (been_attacked) {
 						continue;
 					}
 

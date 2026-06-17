@@ -156,22 +156,19 @@ MoveId FiveDChessState::DecodeAction(Action action) const {
 std::string FiveDChessState::ActionToString(Player player, Action action) const {
   MoveId moveid = DecodeAction(action);
   auto [u0, v0, y0, x0, u1, v1, y1, x1, prto, flags] = DecodeMoveId(moveid);
+  full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
+  std::string PlayerStr(player ? "b." : "w.");
 
-  std::string SrcStr("(" + std::to_string(u0) + "," + std::to_string(v0) + "," + std::to_string(y0) + "," + std::to_string(x0) + ")");
-  std::string DesStr("(" + std::to_string(u1) + "," + std::to_string(v1) + "," + std::to_string(y1) + "," + std::to_string(x1) + ")");
-  std::string ArrowStr(u0 == u1 && v0 == v1 || 0 == u1 && 0 == v1 ? " -> " : " >> ");
-  std::string PassStr(0 == u1 && 0 == v1 ? " [PASS]" : "");
-  std::string BeingCheckedStr(flags & 16 ? " [BEING-CHECKED]" : "");
-  std::string ChecksStr(flags & 8 ? " [CHECKING]" : "");
-  std::string OptionalStr(flags & 4 ? " [OPTIONAL]" : "");
-  std::string BranchStr(flags & 2 ? " [BRANCH]" : "");
-  std::string PromotionStr(!(flags & 32) ? "" : prto == 0 ? " [QUEEN]" : prto == 1 ? " [KNIGHT]" :
-                             prto == 2 ? " [ROOK]" : prto == 3 ? " [BISHOP]" : "");
-
-  return absl::StrCat(
-      SrcStr + ArrowStr + DesStr + PromotionStr +
-      PassStr + BeingCheckedStr + ChecksStr + OptionalStr + BranchStr
-  );
+  std::string BeingCheckedStr(flags & 16 ? "-" : "");
+  std::string ChecksStr(flags & 8 ? "+" : "");
+  std::string OptionalStr(flags & 4 ? "~" : "");
+  std::string BranchStr(flags & 2 ? "^" : "");
+  std::string PromotionStr(!(flags & 32) ? "" : prto == 0 ? "=Q" : prto == 1 ? "=N" :
+                             prto == 2 ? "=R" : prto == 3 ? "=B" : "");
+  
+  std::string TotalStr(PlayerStr + fm.to_string() + PromotionStr + BeingCheckedStr + ChecksStr + OptionalStr + BranchStr);
+  if (TotalStr.length() < 17) TotalStr.append(17 - TotalStr.length(), ' ');
+  return absl::StrCat(TotalStr);
 }
 
 Action FiveDChessState::StringToAction(Player player, const std::string& str) const {

@@ -225,11 +225,9 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     return true;
 }
 
-std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
-           std::vector<std::pair<int,int>>> state::apply_move_and_return_new_boards(full_move fm, piece_t promote_to)
+std::vector<std::pair<int,int>> state::apply_move_and_return_new_boards(full_move fm, piece_t promote_to)
 {
-	std::vector<std::pair<int,int>> new_edges;
-	std::vector<std::pair<int,std::vector<uint64_t>>> new_boards;
+	std::vector<std::pair<int,int>> new_boards;
 	
     dprint("applying move", fm);
     vec4 p = fm.from;
@@ -241,7 +239,7 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
 		// mark it has beed passed
 		has_passed = true;
 
-        return std::make_tuple(new_boards, new_edges);
+        return new_boards;
     }
 
     /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
@@ -292,7 +290,7 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
 
         new_board->contact() = (static_cast<uint64_t>(p.l()) & 0xFF) << 8;
 		
-		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
+		new_boards.push_back(std::make_pair(l_to_u(p.l()), tc_to_v(p.t(), player)+1));
 
     }
     // non-branching superphysical move
@@ -331,8 +329,8 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
         new_board_to->contact() |= (static_cast<uint64_t>(p.l()) & 0xFF) << 24;
         new_board_to->contact() |= (static_cast<uint64_t>(p.t() + player) & 0xFF) << 16;
 		
-		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
-		//m->get_one_board_and_edge(l_to_u(q.l()), tc_to_v(q.t(), player)+1, new_boards, new_edges);
+		new_boards.push_back(std::make_pair(l_to_u(p.l()), tc_to_v(p.t(), player)+1));
+		new_boards.push_back(std::make_pair(l_to_u(q.l()), tc_to_v(q.t(), player)+1));
 		
     }
     //branching move
@@ -380,10 +378,15 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
         new_board_to->contact() |= (static_cast<uint64_t>(p.l()) & 0xFF) << 24;
         new_board_to->contact() |= (static_cast<uint64_t>(p.t() + player) & 0xFF) << 16;
 		
-		//m->get_one_board_and_edge(l_to_u(p.l()), tc_to_v(p.t(), player)+1, new_boards, new_edges);
-		//m->get_one_board_and_edge(l_to_u(new_l_to), tc_to_v(q.t(), player)+1, new_boards, new_edges);
+		new_boards.push_back(std::make_pair(l_to_u(p.l()), tc_to_v(p.t(), player)+1));
+		new_boards.push_back(std::make_pair(l_to_u(new_l_to), tc_to_v(q.t(), player)+1));
     }
-    return std::make_tuple(new_boards, new_edges);
+    return new_boards;
+}
+
+void state::unapply_move_by_new_boards(std::vector<std::pair<int,int>> new_boards)
+{
+	// todo
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const
