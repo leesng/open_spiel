@@ -220,6 +220,18 @@ bool state::apply_move(full_move fm, piece_t promote_to)
      If some move logic needs to be changed here, make sure also perform change
      in HC_info::build_HC()
      */
+	/*{
+		auto [l_min, l_max] = m->get_lines_range();
+		auto [active_min, active_max] = m->get_active_range();
+		std::cout << "111l_min=" << l_min << ",l_max=" << l_max
+					<< ",active_min=" << active_min << ",active_max=" << active_max << std::endl;
+		for (int l = l_min; l <= l_max; l++) {
+			auto ts = m->get_timeline_start(l);
+			auto te = m->get_timeline_end(l);
+			std::cout << "u=" << l_to_u(l) << ",ts_v=" << tc_to_v(ts.first, ts.second)
+										   << ",te_v=" << tc_to_v(te.first, te.second) << std::endl;
+		}
+	}*/
 	apply_move_and_return_new_boards(fm, promote_to);
 
     return true;
@@ -386,13 +398,26 @@ std::vector<std::pair<int,int>> state::apply_move_and_return_new_boards(full_mov
 
 void state::unapply_move_by_new_boards(std::vector<std::pair<int,int>> new_boards)
 {
-	if (new_boards.empty()) {
-		has_passed = false;
-		return;
-	}
-	for (auto [u, v] : new_boards) {
-		m->drop_board(u_to_l(u));
-	}
+    if (new_boards.empty())
+    {
+        // Undo pass move: reset the flag
+        has_passed = false;
+        return;
+    }
+
+    // Undo in reverse order (LIFO):
+    // remove newly created timelines first, then roll back the original timeline.
+    // This avoids transient invalid boundary states during the undo process.
+    for (auto it = new_boards.rbegin(); it != new_boards.rend(); ++it)
+    {
+        auto [u, v] = *it;
+        m->drop_board(u_to_l(u));
+    }
+
+    // Restore present timestamp.
+    // Branching moves may push present backward; recalculating via get_present()
+    // works correctly for physical, non-branching and branching moves alike.
+    present = m->get_present().first;
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const

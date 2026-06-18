@@ -159,26 +159,49 @@ void multiverse::insert_board(int l, int t, bool c, const std::shared_ptr<board>
 void multiverse::drop_board(int l)
 {
     int u = l_to_u(l);
+
+    // Pre-validation: ensure the timeline index is valid and non-empty
+    assert(u >= 0 && u < static_cast<int>(boards.size()));
+    assert(!boards[u].empty());
+    assert(timeline_start[u] <= timeline_end[u]);
+
+    // Remove the trailing board, exact inverse of append_board
     boards[u].pop_back();
     timeline_end[u]--;
-	// check remove line 
-	if (timeline_start[u] > timeline_end[u]) {
-		// update boards
-		boards[u].clear();
-		if (boards.size() - 1 == u) {
-			boards.pop_back();
-		}
-		// update l_min, l_max, active_min,active_max
-		if (l >= 0) {
-			l_max--;
-		} else {
-			l_min++;
-		}
-		assert(std::make_pair(active_min, active_max) == calculate_active_range());
-		// update timeline_start, timeline_end
-		timeline_start[u] = std::numeric_limits<int>::max();
+
+    // The timeline becomes empty: perform full timeline removal (inverse of insert_board)
+    if (timeline_start[u] > timeline_end[u])
+    {
+        // Wipe all data associated with this timeline
+        boards[u].clear();
+        timeline_start[u] = std::numeric_limits<int>::max();
         timeline_end[u] = std::numeric_limits<int>::min();
-	}
+
+        // Shrink all three arrays synchronously if this is the last slot,
+        // to keep boards / timeline_start / timeline_end size-consistent
+        if (u == static_cast<int>(boards.size()) - 1)
+        {
+            boards.pop_back();
+            timeline_start.pop_back();
+            timeline_end.pop_back();
+        }
+
+        // Adjust global boundary only if the deleted timeline was at the edge
+        if (l == l_max)
+        {
+            l_max--;
+        }
+        if (l == l_min)
+        {
+            l_min++;
+        }
+
+        // Rebuild active range to stay symmetric with insert_board logic
+        update_active_range();
+    }
+
+    // Final consistency invariant check
+    assert(std::make_pair(active_min, active_max) == calculate_active_range());
 }
 
 void multiverse::update_active_range()
