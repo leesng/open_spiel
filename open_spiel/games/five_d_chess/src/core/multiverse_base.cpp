@@ -156,6 +156,31 @@ void multiverse::insert_board(int l, int t, bool c, const std::shared_ptr<board>
     assert(std::make_pair(active_min, active_max) == calculate_active_range());
 }
 
+void multiverse::drop_board(int l)
+{
+    int u = l_to_u(l);
+    boards[u].pop_back();
+    timeline_end[u]--;
+	// check remove line 
+	if (timeline_start[u] > timeline_end[u]) {
+		// update boards
+		boards[u].clear();
+		if (boards.size() - 1 == u) {
+			boards.pop_back();
+		}
+		// update l_min, l_max, active_min,active_max
+		if (l >= 0) {
+			l_max--;
+		} else {
+			l_min++;
+		}
+		assert(std::make_pair(active_min, active_max) == calculate_active_range());
+		// update timeline_start, timeline_end
+		timeline_start[u] = std::numeric_limits<int>::max();
+        timeline_end[u] = std::numeric_limits<int>::min();
+	}
+}
+
 void multiverse::update_active_range()
 {
     std::tie(active_min, active_max) = calculate_active_range();

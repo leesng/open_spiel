@@ -27,7 +27,7 @@
 
 #include <atomic>
 #include <malloc.h>
-constexpr int MEM_TRIM_GAME_INTERVAL = 10;
+constexpr int MEM_TRIM_GAME_INTERVAL = 20;
 std::atomic<int> g_last_trim_game(0);
 // ==================== RSS (Windows/Linux) ====================
 #ifdef _WIN32

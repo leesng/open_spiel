@@ -386,7 +386,13 @@ std::vector<std::pair<int,int>> state::apply_move_and_return_new_boards(full_mov
 
 void state::unapply_move_by_new_boards(std::vector<std::pair<int,int>> new_boards)
 {
-	// todo
+	if (new_boards.empty()) {
+		has_passed = false;
+		return;
+	}
+	for (auto [u, v] : new_boards) {
+		m->drop_board(u_to_l(u));
+	}
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const

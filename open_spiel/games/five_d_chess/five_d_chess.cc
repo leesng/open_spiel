@@ -264,11 +264,12 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
   // ==================== Legal Move Mask Section ====================
   for (int board_idx = 0; board_idx < num_operable; board_idx++) {
     const auto& [board_id, move_list] = operable_boards_[board_idx];
-    for (int move_idx = 0; move_idx < std::min(kMaxMovesPerBoard, (int)move_list.size()); move_idx++) {
+    bool is_optional_line = false, has_check_move = false;
+	for (int move_idx = 0; move_idx < std::min(kMaxMovesPerBoard, (int)move_list.size()); move_idx++) {
         Action a = board_idx * kMaxMovesPerBoard + move_idx;
         MoveId moveid = move_list[move_idx];
         auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(moveid);
-		bool is_optional_line = false, has_check_move = false;
+		
         if ((u1 == 0 && v1 == 0) || (flags & 8) || (flags & 16)) {
             values[ptr + a] = 1.0f;
             // need fix board prob
@@ -280,18 +281,18 @@ void FiveDChessState::ObservationTensor(Player player, absl::Span<float> values)
 				is_optional_line = true;
 			}
             if (flags & 2) {
-				values[ptr + a] *= 0.0f; // branch
+				values[ptr + a] *= 0.01f; // branch
 			}
         }
-		// overwrite board prob
-		if (has_check_move) {
-			values[4 + board_idx * 2 + 1] = 1.0f;
-		} else if (is_optional_line) {
-			values[4 + board_idx * 2 + 1] = 0.01f;
-		} else {
-			values[4 + board_idx * 2 + 1] = 1.0f;
-		}
     }
+	// overwrite board prob
+	if (has_check_move) {
+		values[4 + board_idx * 2 + 1] = 1.0f;
+	} else if (is_optional_line) {
+		values[4 + board_idx * 2 + 1] = 0.01f;
+	} else {
+		values[4 + board_idx * 2 + 1] = 0.5f;
+	}
   }
   ptr += kNumDistinctActions;
 

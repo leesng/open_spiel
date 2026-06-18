@@ -421,30 +421,31 @@ std::vector<torch::Tensor> AGHHierarchicalHeadImpl::forward(
       PRIOR_MOVE_STRENGTH * torch::log(move_priorities.clamp_min(1e-8f));
 
   // ========== 统一软剪枝（训练/推理全程生效）==========
-  // 1. 棋盘级软剪枝
-  float max_board_logit = operable_board_logits.max().item<float>();
-  torch::Tensor board_cut_mask = operable_board_logits > (max_board_logit - kSoftPruneThreshold);
-  operable_board_logits = torch::where(
-      board_cut_mask,
-      operable_board_logits,
-      -1e9f * torch::ones_like(operable_board_logits)
-  );
+  if (kSoftPruneThreshold != 0) {
+	  // 1. 棋盘级软剪枝
+	  float max_board_logit = operable_board_logits.max().item<float>();
+	  torch::Tensor board_cut_mask = operable_board_logits > (max_board_logit - (float)kSoftPruneThreshold);
+	  operable_board_logits = torch::where(
+		  board_cut_mask,
+		  operable_board_logits,
+		  -1e9f * torch::ones_like(operable_board_logits)
+	  );
 
-  // 2. 级联剪枝：被剪棋盘的所有走法同步屏蔽
-  operable_move_logits = torch::where(
-      board_cut_mask.unsqueeze(1),
-      operable_move_logits,
-      -1e9f * torch::ones_like(operable_move_logits)
-  );
+	  // 2. 级联剪枝：被剪棋盘的所有走法同步屏蔽
+	  operable_move_logits = torch::where(
+		  board_cut_mask.unsqueeze(1),
+		  operable_move_logits,
+		  -1e9f * torch::ones_like(operable_move_logits)
+	  );
 
-  // 3. 走法级软剪枝
-  auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
-  operable_move_logits = torch::where(
-    operable_move_logits > max_per_board - kSoftPruneThreshold,
-    operable_move_logits,
-    -1e9f * torch::ones_like(operable_move_logits)
-  );
-
+	  // 3. 走法级软剪枝
+	  auto [max_per_board, _] = torch::max(operable_move_logits, /*dim=*/1, /*keepdim=*/true);
+	  operable_move_logits = torch::where(
+		operable_move_logits > max_per_board - (float)kSoftPruneThreshold,
+		operable_move_logits,
+		-1e9f * torch::ones_like(operable_move_logits)
+	  );
+  }
   // 填充到固定大小张量
   full_board_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_board_logits);
   full_move_logits.index_put_({torch::indexing::Slice(0, num_operable_boards)}, operable_move_logits);

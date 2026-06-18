@@ -38,7 +38,7 @@ constexpr int kMaxRuntimeBoards = 1 << 9; // Maximum active boards during runtim
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
 constexpr int kTotalBoardDataSize = 2 + kBoardInputChannels * kBoardHeight * kBoardWidth;
 
-constexpr float kSoftPruneThreshold = 7.0f;
+constexpr int kSoftPruneThreshold = 0;
 
 // ========================================================================
 
