@@ -74,8 +74,9 @@ public:
      */
     template<bool UNSAFE = false>
     bool apply_move(full_move fm, piece_t promote_to = QUEEN_W);
-	std::vector<std::pair<int,int>> apply_move_and_return_new_boards(full_move fm, piece_t promote_to);
-	void unapply_move_by_new_boards(std::vector<std::pair<int,int>> new_boards);
+	std::vector<int> apply_move_and_return_new_boards(full_move fm, piece_t promote_to);
+	void unapply_move_by_new_boards(std::vector<int> new_lines, bool maybe_passed = true);
+	std::vector<int> phantom_and_return_new_boards(bool color);
     template<bool UNSAFE = false>
     bool submit();
     
@@ -177,7 +178,8 @@ public:
     std::string show_fen() const;
 
 	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
-	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms) const;
+	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status_const(match_status_t &ms) const;
+	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms);
 	bool big_round_over() const;
 
 	
