@@ -149,6 +149,7 @@ class FiveDChessState : public State {
  private:
   // Internal move execution interface of OpenSpiel
   void DoApplyAction(Action action) override;
+  void UndoAction(Player player, Action action) override;
 
   // Action / MoveId encoding & decoding logic
   Action EncodeAction(MoveId moveid) const;
@@ -157,7 +158,7 @@ class FiveDChessState : public State {
   // Game runtime status
   bool is_first_real_selfplay_game_;
   Player current_player_;
-  int num_moves_;
+  //int num_moves_;
   int current_big_round_;
 
   // Core game engine data (aligned with native engine type)
@@ -173,8 +174,23 @@ class FiveDChessState : public State {
    std::vector<std::pair<BoardId, std::vector<uint64_t>>> all_boards_;
    std::vector<std::pair<BoardId, std::vector<MoveId>>> operable_boards_;
    std::vector<std::pair<BoardId, BoardId>> boards_edges_;
-   std::vector<std::string> history_moves_list_; // Move history for debug
+   //std::vector<std::string> history_moves_list_; // Move history for debug
    
+  struct UndoEntry {
+    //int prev_num_moves;
+    int prev_big_round;
+    Player prev_player;
+    match_status_t prev_ms;
+    std::vector<std::pair<BoardId, std::vector<uint64_t>>> prev_all_boards;
+    std::vector<std::pair<BoardId, BoardId>> prev_edges;
+    std::vector<std::pair<BoardId, std::vector<MoveId>>> prev_operable;
+
+    std::vector<int> apply_new_lines;
+    bool did_submit;
+    std::tuple<int, bool, bool> submit_params;
+    Player actor_player;  // only for debug
+  };
+  std::vector<UndoEntry> undo_stack_;
 };
 
 // Game class definition for 5D Chess

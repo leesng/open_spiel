@@ -79,7 +79,9 @@ public:
 	std::vector<int> phantom_and_return_new_boards(bool color);
     template<bool UNSAFE = false>
     bool submit();
-    
+	std::tuple<int, bool, bool> submit_and_return_params();
+	void unsubmit_by_params(std::tuple<int, bool, bool> params);
+
     /*
      move_info: given a move, apply it and return the new state, new position of the moved
      piece, and whether the moved piece(s) checks the opponent.

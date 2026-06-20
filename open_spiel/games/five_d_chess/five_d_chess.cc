@@ -75,7 +75,6 @@ std::vector<int> FiveDChessGame::ObservationTensorShape() const {
 FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
     : State(game),
       s(*pgnparser(init_str).parse_game()),
-      num_moves_(0),
       current_big_round_(1) {
   is_first_real_selfplay_game_ = true;
 
@@ -85,7 +84,7 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
 
   current_player_ = c;
-  history_moves_list_.clear();
+  undo_stack_.clear();
 }
 
 FiveDChessState::FiveDChessState(const FiveDChessState& other)
@@ -93,15 +92,14 @@ FiveDChessState::FiveDChessState(const FiveDChessState& other)
       s(other.s),
       ms(other.ms),
       current_player_(other.current_player_),
-      num_moves_(other.num_moves_),
       current_big_round_(other.current_big_round_),
       all_boards_(other.all_boards_),
       operable_boards_(other.operable_boards_),
       boards_edges_(other.boards_edges_),
-      history_moves_list_(other.history_moves_list_) {
-  is_first_real_selfplay_game_ = false;
+      undo_stack_(other.undo_stack_),
+      is_first_real_selfplay_game_(false) {
 }
-
+	  
 FiveDChessState::~FiveDChessState() = default;
 
 Player FiveDChessState::CurrentPlayer() const {
@@ -206,7 +204,7 @@ std::string FiveDChessState::ToString() const {
   return absl::StrCat(std::string(
 	  "5D Chess | Round: " + std::to_string(current_big_round_) +
       " | Player: " + (current_player_ ? "Black" : "White") +
-      " | Moves: " + std::to_string(num_moves_) + 
+      " | Moves: " + std::to_string(move_number_) + 
       " | Terminal: " + (IsTerminal() ? "YES " : "NO ") + s->to_string()
   ));
 }
@@ -344,28 +342,43 @@ void FiveDChessState::DoApplyAction(Action action) {
   SPIEL_CHECK_NE(core_moveid, kInvalidMoveId);
 
   auto [u0, v0, y0, x0, u1, v1, y1, x1, promotion, flags] = DecodeMoveId(core_moveid);
-
   full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
   piece_t pto((piece_t)("QNRB"[promotion]));
-  history_moves_list_.push_back(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
-  if (is_first_real_selfplay_game_)
-    std::cout << "{" << std::this_thread::get_id() << "." << num_moves_ << ":" << flags << pto << "}"
-              << history_moves_list_.back() << std::endl;
-  bool success = s->apply_move<true>(fm, pto);
-  SPIEL_CHECK_TRUE(success);
-  //std::tie(all_boards_, boards_edges_) = s->apply_move_and_return_new_boards(fm, pto);
+  
+  // ========== Backup 1 for undo state ==========
+  UndoEntry entry;
+  entry.prev_big_round = current_big_round_;
+  entry.prev_player = current_player_;
+  entry.prev_ms = ms;
+  entry.prev_all_boards = all_boards_;
+  entry.prev_edges = boards_edges_;
+  entry.prev_operable = operable_boards_;
+  entry.actor_player = current_player_;
 
-  if (s->big_round_over()) {
-    bool submit_success = s->submit();
-    SPIEL_CHECK_TRUE(submit_success);
+  std::string moveStr(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
+  if (is_first_real_selfplay_game_)
+    std::cout << "{" << std::this_thread::get_id() << "." << move_number_ << ":" << flags << pto << "}"
+              << moveStr << std::endl;
+
+  // ========== Backup 2 for unapply move ==========
+  entry.apply_new_lines = s->apply_move_and_return_new_boards(fm, pto);
+
+  // ========== Backup 3 for unsunmit ==========
+  entry.did_submit = s->big_round_over();
+  if (entry.did_submit) {
+    entry.submit_params = s->submit_and_return_params();
+    SPIEL_CHECK_TRUE(std::get<0>(entry.submit_params) >= 0);
   }
 
   auto [t, c] = s->get_present();
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
+
   if (ms != match_status_t::PLAYING) {
-	if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
-	return;
+    if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
+    // for undo
+    undo_stack_.push_back(std::move(entry));
+    return;
   }
 
   // check out of range
@@ -375,39 +388,41 @@ void FiveDChessState::DoApplyAction(Action action) {
       all_boards_.size() > kMaxRuntimeBoards ||
       operable_boards_.size() > kMaxOperableBoards ||
       boards_edges_.size() > kMaxRuntimeEdges ||
-	  num_moves_ + 1 >= kMaxGameLength) {
-	int wc = 0, bc = 0;
-	auto [l_min, l_max] = s->get_lines_range();
+      move_number_ + 1 >= kMaxGameLength) {
+    int wc = 0, bc = 0;
+    auto [l_min, l_max] = s->get_lines_range();
     auto [active_min, active_max] = s->get_active_range();
-	if (l_min < active_min) {
-		ms = match_status_t::WHITE_WINS;
-	}else if (active_max < l_max){
-		ms = match_status_t::BLACK_WINS;
-	}else {
-		for(int l = l_min; l <= l_max; l++) {
-			auto [t, c] = s->get_timeline_end(l);
-			if (c) bc++;
-			else wc++;
-		}
-		if (wc > bc) ms = match_status_t::WHITE_WINS;
-		else if (wc < bc) ms = match_status_t::BLACK_WINS;
-		else ms = match_status_t::STALEMATE;
-	}
+    if (l_min < active_min) {
+      ms = match_status_t::WHITE_WINS;
+    } else if (active_max < l_max) {
+      ms = match_status_t::BLACK_WINS;
+    } else {
+      for(int l = l_min; l <= l_max; l++) {
+        auto [tl, tc] = s->get_timeline_end(l);
+        if (tc) bc++;
+        else wc++;
+      }
+      if (wc > bc) ms = match_status_t::WHITE_WINS;
+      else if (wc < bc) ms = match_status_t::BLACK_WINS;
+      else ms = match_status_t::STALEMATE;
+    }
     
-	if (is_first_real_selfplay_game_) 
-		std::cout << "max_board_mvs_cnt=" << it->second.size()
-			<< ",all_boards=" << all_boards_.size()
-			<< ",operable_boards=" << operable_boards_.size()
-			<< ",boards_edges=" << boards_edges_.size()
-			<< ",num_moves_=" << num_moves_ 
-			<< ",l_min=" << l_min
-			<< ",l_max=" << l_max 
-			<< ",active_min=" << active_min
-			<< ",active_max=" << active_max 
-			<< ",wc=" << wc
-			<< ",bc=" << bc 
-			<< ",force ms=" << ms
-			<< std::endl;
+    if (is_first_real_selfplay_game_) 
+      std::cout << "max_board_mvs_cnt=" << it->second.size()
+        << ",all_boards=" << all_boards_.size()
+        << ",operable_boards=" << operable_boards_.size()
+        << ",boards_edges=" << boards_edges_.size()
+        << ",move_number_=" << move_number_ 
+        << ",l_min=" << l_min
+        << ",l_max=" << l_max 
+        << ",active_min=" << active_min
+        << ",active_max=" << active_max 
+        << ",wc=" << wc
+        << ",bc=" << bc 
+        << ",force ms=" << ms
+        << std::endl;
+	// for undo
+    undo_stack_.push_back(std::move(entry));
     return;
   }
 
@@ -417,12 +432,48 @@ void FiveDChessState::DoApplyAction(Action action) {
       current_big_round_++;
     }
   }
-  num_moves_++;
-  /*if (num_moves_ >= kMaxGameLength) {
-	ms = match_status_t::STALEMATE;
-	if (is_first_real_selfplay_game_) std::cout << "num_moves_=" << num_moves_
-		<< ",force2 ms=" << ms << std::endl;
-  }*/
+
+  // for undo
+  undo_stack_.push_back(std::move(entry));
+}
+
+void FiveDChessState::UndoAction(Player player, Action action) {
+  SPIEL_CHECK_TRUE(!undo_stack_.empty());
+  UndoEntry entry = std::move(undo_stack_.back());
+  undo_stack_.pop_back();
+
+#ifndef NDEBUG
+  SPIEL_CHECK_EQ(player, entry.actor_player);
+#endif
+
+  // 1. reroll history and num (openspiel need it)
+  history_.pop_back();
+  --move_number_;
+
+  // 2. revovery uplayer snapshot
+  current_big_round_ = entry.prev_big_round;
+  current_player_ = entry.prev_player;
+  ms = entry.prev_ms;
+  all_boards_ = std::move(entry.prev_all_boards);
+  boards_edges_ = std::move(entry.prev_edges);
+  operable_boards_ = std::move(entry.prev_operable);
+
+  // 3. undo summit and apply
+  if (entry.did_submit) {
+    s->unsubmit_by_params(entry.submit_params);
+  }
+  s->unapply_move_by_new_boards(entry.apply_new_lines, /*maybe_passed=*/true);
+
+#ifndef NDEBUG
+  //match_status_t check_ms;
+  //auto [check_t, check_c] = s->get_present();
+  //auto [check_boards, check_edges] = s->get_boards_and_edges();
+  //auto check_operable = s->get_operable_boards_moves_and_match_status(check_ms);
+  //SPIEL_CHECK_EQ(static_cast<bool>(check_c), static_cast<bool>(current_player_));
+  //SPIEL_CHECK_EQ(check_ms, ms);
+  //SPIEL_CHECK_EQ(check_boards.size(), all_boards_.size());
+  //SPIEL_CHECK_EQ(check_operable.size(), operable_boards_.size());
+#endif
 }
 
 }  // namespace five_d_chess

@@ -534,6 +534,27 @@ bool state::submit()
     return true;
 }
 
+std::tuple<int, bool, bool> state::submit_and_return_params()
+{
+	int present_pre = present;
+    bool player_pre = player;
+	bool has_passed_pre = has_passed;
+	
+    auto [t, c] = m->get_present();
+    present = t;
+    player  = c;
+	has_passed = false;
+	
+    return std::make_tuple(present_pre, player_pre, has_passed_pre);
+}
+
+void state::unsubmit_by_params(std::tuple<int, bool, bool> params)
+{
+	present = std::get<0>(params);
+	player = std::get<1>(params);
+	has_passed = std::get<2>(params);
+}
+
 state state::phantom() const
 {
     const auto [l_min, l_max] = get_lines_range();
@@ -1205,12 +1226,33 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
 			ms = match_status_t::STALEMATE;
 		}
 	}
-	
+
+#ifndef NDEBUG
 	//match_status_t ms_const;
     //auto res_const = get_operable_boards_moves_and_match_status_const(ms_const);
+    /*if (operable_boards != res_const) {
+        for (auto& outer_pair : operable_boards) {
+            std::cout << "~~~[" << outer_pair.first << "]:" << std::endl;
+            for (uint64_t& moveid : outer_pair.second) {
+                auto [u0, v0, y0, x0, u1, v1, y1, x1, pto, flags] = DecodeMoveId(moveid);
+                full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
+                std::cout << fm.to_string() << "{" << moveid << "}";
+            }
+            std::cout << std::endl;
+        }
+        for (auto& outer_pair : res_const) {
+            std::cout << "==>[" << outer_pair.first << "]:" << std::endl;
+            for (uint64_t& moveid : outer_pair.second) {
+                auto [u0, v0, y0, x0, u1, v1, y1, x1, pto, flags] = DecodeMoveId(moveid);
+                full_move fm(vec4(x0, y0, v_to_tc(v0).first, u_to_l(u0)), vec4(x1, y1, v_to_tc(v1).first, u_to_l(u1)));
+                std::cout << fm.to_string() << "{" << moveid << "}";
+            }
+            std::cout << std::endl;
+        }
+    }*/
     //assert(ms == ms_const && "match status mismatch");
     //assert(operable_boards == res_const && "operable boards count mismatch");
-	
+#endif
     return operable_boards;
 }
 
