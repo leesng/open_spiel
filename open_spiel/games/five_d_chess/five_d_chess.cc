@@ -348,11 +348,11 @@ void FiveDChessState::DoApplyAction(Action action) {
   // ========== Backup 1 for undo state ==========
   UndoEntry entry;
   entry.prev_big_round = current_big_round_;
-  entry.prev_player = current_player_;
-  entry.prev_ms = ms;
-  entry.prev_all_boards = all_boards_;
-  entry.prev_edges = boards_edges_;
-  entry.prev_operable = operable_boards_;
+  //entry.prev_player = current_player_;
+  //entry.prev_ms = ms;
+  //entry.prev_all_boards = all_boards_;
+  //entry.prev_edges = boards_edges_;
+  //entry.prev_operable = operable_boards_;
   entry.actor_player = current_player_;
 
   std::string moveStr(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
@@ -452,17 +452,22 @@ void FiveDChessState::UndoAction(Player player, Action action) {
 
   // 2. revovery uplayer snapshot
   current_big_round_ = entry.prev_big_round;
-  current_player_ = entry.prev_player;
-  ms = entry.prev_ms;
-  all_boards_ = std::move(entry.prev_all_boards);
-  boards_edges_ = std::move(entry.prev_edges);
-  operable_boards_ = std::move(entry.prev_operable);
+  //current_player_ = entry.prev_player;
+  //ms = entry.prev_ms;
+  //all_boards_ = std::move(entry.prev_all_boards);
+  //boards_edges_ = std::move(entry.prev_edges);
+  //operable_boards_ = std::move(entry.prev_operable);
 
   // 3. undo summit and apply
   if (entry.did_submit) {
     s->unsubmit_by_params(entry.submit_params);
   }
   s->unapply_move_by_new_boards(entry.apply_new_lines, /*maybe_passed=*/true);
+  
+  // rewrite
+  current_player_ = s->get_present().second;
+  std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
+  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
 
 #ifndef NDEBUG
   //match_status_t check_ms;
