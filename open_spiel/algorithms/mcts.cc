@@ -269,11 +269,11 @@ std::pair<ActionsAndProbs, Action> MCTSBot::StepWithPolicy(const State& state) {
   return {{{action, 1.}}, action};
 }
 
-std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
-    SearchNode* root, const State& state,
+void MCTSBot::ApplyTreePolicy(
+    SearchNode* root, State* working_state,
     std::vector<SearchNode*>* visit_path) {
   visit_path->push_back(root);
-  std::unique_ptr<State> working_state = state.Clone();
+  //std::unique_ptr<State> working_state = state.Clone();
   SearchNode* current_node = root;
   while ((!working_state->IsTerminal() && current_node->explore_count > 0) ||
          (working_state->IsChanceNode() && dont_return_chance_node_)) {
@@ -302,7 +302,7 @@ std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
     Action selected_action;
     if (current_node->children.empty()) {
       // no children, sample from prior
-      selected_action = current_node->SampleFromPrior(state, evaluator_.get(),
+      selected_action = current_node->SampleFromPrior(*working_state, evaluator_.get(),
                                                       &rng_);
     } else {
       // look at children
@@ -346,7 +346,7 @@ std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
     visit_path->push_back(current_node);
   }
 
-  return working_state;
+  //return working_state;
 }
 
 std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
@@ -357,12 +357,13 @@ std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
   std::vector<SearchNode*> visit_path;
   std::vector<double> returns;
   visit_path.reserve(64);
+  // clone only once use UndoAction
+  std::unique_ptr<State> working_state = state.Clone();
   for (int i = 0; i < max_simulations_; ++i) {
     visit_path.clear();
     returns.clear();
 
-    std::unique_ptr<State> working_state =
-        ApplyTreePolicy(root.get(), state, &visit_path);
+    ApplyTreePolicy(root.get(), working_state.get(), &visit_path);
 
     bool solved;
     if (working_state->IsTerminal()) {
@@ -375,6 +376,14 @@ std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
     }
 
     // Propagate values back.
+    for (size_t j = visit_path.size() - 1; j >= 1; --j) {
+      SearchNode* node = visit_path[j];
+      working_state->UndoAction(node->player, node->action);
+    }
+#ifndef NDEBUG
+    SPIEL_CHECK_EQ(working_state->ToString(), state.ToString());
+#endif
+
     while (!visit_path.empty()) {
       int decision_node_idx = visit_path.size() - 1;
       SearchNode* node = visit_path[decision_node_idx];

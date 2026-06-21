@@ -519,17 +519,16 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
 template <bool UNSAFE>
 bool state::submit()
 {
-    auto [t, c] = m->get_present();
     if constexpr (!UNSAFE)
     {
+		auto [t, c] = m->get_present();
         if(player == c)
         {
             return false;
         }
     }
-    present = t;
-    player  = c;
-	has_passed = false;
+
+	submit_and_return_params();
 	
     return true;
 }
