@@ -177,18 +177,9 @@ class FiveDChessState : public State {
    //std::vector<std::string> history_moves_list_; // Move history for debug
    
   struct UndoEntry {
-    //int prev_num_moves;
-    int prev_big_round;
-    //Player prev_player;
-    //match_status_t prev_ms;
-    //std::vector<std::pair<BoardId, std::vector<uint64_t>>> prev_all_boards;
-    //std::vector<std::pair<BoardId, BoardId>> prev_edges;
-    //std::vector<std::pair<BoardId, std::vector<MoveId>>> prev_operable;
-
-    std::vector<int> apply_new_lines;
     bool did_submit;
     std::tuple<int, bool, bool> submit_params;
-    Player actor_player;  // only for debug
+	std::vector<int> apply_new_lines;
   };
   std::vector<UndoEntry> undo_stack_;
 };

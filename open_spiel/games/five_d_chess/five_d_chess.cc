@@ -347,14 +347,6 @@ void FiveDChessState::DoApplyAction(Action action) {
   
   // ========== Backup 1 for undo state ==========
   UndoEntry entry;
-  entry.prev_big_round = current_big_round_;
-  //entry.prev_player = current_player_;
-  //entry.prev_ms = ms;
-  //entry.prev_all_boards = all_boards_;
-  //entry.prev_edges = boards_edges_;
-  //entry.prev_operable = operable_boards_;
-  entry.actor_player = current_player_;
-
   std::string moveStr(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
   if (is_first_real_selfplay_game_)
     std::cout << "{" << std::this_thread::get_id() << "." << move_number_ << ":" << flags << pto << "}"
@@ -442,22 +434,11 @@ void FiveDChessState::UndoAction(Player player, Action action) {
   UndoEntry entry = std::move(undo_stack_.back());
   undo_stack_.pop_back();
 
-#ifndef NDEBUG
-  SPIEL_CHECK_EQ(player, entry.actor_player);
-#endif
-
   // 1. reroll history and num (openspiel need it)
   history_.pop_back();
   --move_number_;
 
   // 2. revovery uplayer snapshot
-  current_big_round_ = entry.prev_big_round;
-  //current_player_ = entry.prev_player;
-  //ms = entry.prev_ms;
-  //all_boards_ = std::move(entry.prev_all_boards);
-  //boards_edges_ = std::move(entry.prev_edges);
-  //operable_boards_ = std::move(entry.prev_operable);
-
   // 3. undo summit and apply
   if (entry.did_submit) {
     s->unsubmit_by_params(entry.submit_params);
@@ -465,7 +446,17 @@ void FiveDChessState::UndoAction(Player player, Action action) {
   s->unapply_move_by_new_boards(entry.apply_new_lines, /*maybe_passed=*/true);
   
   // rewrite
-  current_player_ = s->get_present().second;
+  auto [t, c] = s->get_present();
+  if (current_player_ != c) {
+	  if (!current_player_) {
+		  current_big_round_--;
+	  }
+	  current_player_ = c;
+  }
+#ifndef NDEBUG
+  SPIEL_CHECK_EQ(player, current_player_);
+#endif
+
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
 
