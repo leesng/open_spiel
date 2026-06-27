@@ -224,13 +224,15 @@ set (OPEN_SPIEL_CORE_OBJECTS $<TARGET_OBJECTS:open_spiel_core>)
 set (OPEN_SPIEL_OBJECTS
   $<TARGET_OBJECTS:open_spiel_core>
   $<TARGET_OBJECTS:bots>
-  $<TARGET_OBJECTS:games>
+#  $<TARGET_OBJECTS:games>
   $<TARGET_OBJECTS:game_transforms>
-  #$<TARGET_OBJECTS:bridge_double_dummy_solver>
+#  $<TARGET_OBJECTS:bridge_double_dummy_solver>
   $<TARGET_OBJECTS:algorithms>
   $<TARGET_OBJECTS:evaluation>
   $<TARGET_OBJECTS:utils>
   $<TARGET_OBJECTS:tests>
+  $<TARGET_OBJECTS:5dchess_engine_core>
+  $<TARGET_OBJECTS:open_spiel_five_d_chess>
 )
 if (OPEN_SPIEL_BUILD_WITH_HANABI)
   set(OPEN_SPIEL_OBJECTS ${OPEN_SPIEL_OBJECTS}
@@ -249,12 +251,12 @@ if (OPEN_SPIEL_BUILD_WITH_ROSHAMBO)
 endif()
 if (OPEN_SPIEL_BUILD_WITH_LIBNOP)
   include_directories(libnop/include)
-  #add_subdirectory(libnop)
+#  add_subdirectory(libnop)
 endif()
 if (OPEN_SPIEL_BUILD_WITH_LIBTORCH)
   list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libtorch/libtorch")
   find_package(Torch REQUIRED)
-  #add_subdirectory(libtorch)
+#  add_subdirectory(libtorch)
   include_directories(${TORCH_INCLUDE_DIRS})
   # Use following to link your_target_executable with torch libraries:
   # target_link_libraries(your_target_executable ${TORCH_LIBRARIES})
@@ -289,8 +291,11 @@ add_subdirectory (algorithms)
 add_subdirectory (bots)
 add_subdirectory (evaluation)
 add_subdirectory (examples)
-add_subdirectory (games)
+#add_subdirectory (games)
 add_subdirectory (game_transforms)
+
+# ========== 5D Chess Engine (need LibTorch,AlphaZero)==========
+add_subdirectory(5dchess_engine)
 
 if (OPEN_SPIEL_BUILD_WITH_PYTHON)
   add_subdirectory (python)
