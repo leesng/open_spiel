@@ -346,7 +346,7 @@ void evaluator(const open_spiel::Game& game, const AlphaZeroConfig& config,
     auto [difficulty, first] = results->Next();
     int az_player = first ? 0 : 1;
     int rand_max_simulations =
-        config.max_simulations * std::pow(10, difficulty / 2.0);
+        std::sqrt(config.max_simulations * std::pow(10, difficulty / 2.0));
     std::vector<std::unique_ptr<MCTSBot>> bots;
     bots.reserve(2);
     bots.push_back(InitAZBot(config, game, vp_eval, true));

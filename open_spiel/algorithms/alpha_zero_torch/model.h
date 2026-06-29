@@ -34,7 +34,7 @@ constexpr int kMaxOperableBoards = 128;    // Maximum number of operable game bo
 constexpr int kFixedPolicyDim = kMaxOperableBoards * kMaxMovesPerBoard; // Fixed policy output dimension (32768)
 constexpr int kEmbeddingDim = 128;         // Node feature embedding dimension
 
-constexpr int kMaxRuntimeBoards = 1 << 9; // Maximum active boards during runtime
+constexpr int kMaxRuntimeBoards = 256; // Maximum boards during runtime
 constexpr int kMaxRuntimeEdges = kMaxRuntimeBoards * 2;
 constexpr int kTotalBoardDataSize = 2 + kBoardInputChannels * kBoardHeight * kBoardWidth;
 
