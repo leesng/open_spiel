@@ -269,15 +269,19 @@ std::pair<ActionsAndProbs, Action> MCTSBot::StepWithPolicy(const State& state) {
   return {{{action, 1.}}, action};
 }
 
+#ifdef NOT_UNDO
 std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
     SearchNode* root, const State& state,
     std::vector<SearchNode*>* visit_path) {
-// for use undoAction
-//void MCTSBot::ApplyTreePolicy(
-//    SearchNode* root, State* working_state,
-//    std::vector<SearchNode*>* visit_path) {
+#else// for use undoAction
+void MCTSBot::ApplyTreePolicy(
+    SearchNode* root, State* working_state,
+    std::vector<SearchNode*>* visit_path) {
+#endif
   visit_path->push_back(root);
+  #ifdef NOT_UNDO
   std::unique_ptr<State> working_state = state.Clone(); // remove it if use undoAction 
+  #endif
   SearchNode* current_node = root;
   while ((!working_state->IsTerminal() && current_node->explore_count > 0) ||
          (working_state->IsChanceNode() && dont_return_chance_node_)) {
@@ -306,11 +310,13 @@ std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
     Action selected_action;
     if (current_node->children.empty()) {
       // no children, sample from prior
+	  #ifdef NOT_UNDO
       selected_action = current_node->SampleFromPrior(state, evaluator_.get(),
                                                       &rng_);
-	  // for use undoAction
-      //selected_action = current_node->SampleFromPrior(*working_state, evaluator_.get(),
-      //                                                &rng_);
+	  #else // for use undoAction
+      selected_action = current_node->SampleFromPrior(*working_state, evaluator_.get(),
+                                                      &rng_);
+	  #endif
     } else {
       // look at children
       SearchNode* chosen_child = nullptr;
@@ -352,8 +358,9 @@ std::unique_ptr<State> MCTSBot::ApplyTreePolicy(
     working_state->ApplyAction(selected_action);
     visit_path->push_back(current_node);
   }
-
+#ifdef NOT_UNDO
   return working_state; // remove it if use undoAction 
+#endif
 }
 
 std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
@@ -364,16 +371,19 @@ std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
   std::vector<SearchNode*> visit_path;
   std::vector<double> returns;
   visit_path.reserve(64);
-  // clone only once use UndoAction
-  //std::unique_ptr<State> working_state = state.Clone();
+  #ifdef NOT_UNDO
+  #else // clone only once use UndoAction
+  std::unique_ptr<State> working_state = state.Clone();
+  #endif
   for (int i = 0; i < max_simulations_; ++i) {
     visit_path.clear();
     returns.clear();
-
+	#ifdef NOT_UNDO
     std::unique_ptr<State> working_state =
         ApplyTreePolicy(root.get(), state, &visit_path);
-	// for use undoAction
-    //ApplyTreePolicy(root.get(), working_state.get(), &visit_path);
+	#else// for use undoAction
+    ApplyTreePolicy(root.get(), working_state.get(), &visit_path);
+	#endif
 
     bool solved;
     if (working_state->IsTerminal()) {
@@ -386,14 +396,13 @@ std::unique_ptr<SearchNode> MCTSBot::MCTSearch(const State& state) {
     }
 
     // Propagate values back.
-// for use undoAction
-//    for (size_t j = visit_path.size() - 1; j >= 1; --j) {
-//      SearchNode* node = visit_path[j];
-//      working_state->UndoAction(node->player, node->action);
-//    }
-//#ifndef NDEBUG
-//    SPIEL_CHECK_EQ(working_state->ToString(), state.ToString());
-//#endif
+	#ifdef NOT_UNDO
+	#else // for use undoAction
+    for (size_t j = visit_path.size() - 1; j >= 1; --j) {
+      SearchNode* node = visit_path[j];
+      working_state->UndoAction(node->player, node->action);
+    }
+	#endif
 
     while (!visit_path.empty()) {
       int decision_node_idx = visit_path.size() - 1;

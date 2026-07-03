@@ -197,11 +197,14 @@ class MCTSBot : public Bot {
   //     node to a leaf node.
   //
   // Returns: The state of the game at the leaf node.
+  //#define NOT_UNDO 1
+  #ifdef NOT_UNDO
   std::unique_ptr<State> ApplyTreePolicy(SearchNode* root, const State& state,
                                          std::vector<SearchNode*>* visit_path);
-  // for use undoAction
-  //void ApplyTreePolicy(SearchNode* root, State* working_state,
-  //  std::vector<SearchNode*>* visit_path);
+  #else // for use undoAction
+  void ApplyTreePolicy(SearchNode* root, State* working_state,
+                       std::vector<SearchNode*>* visit_path);
+  #endif
   void GarbageCollect(SearchNode* node);
 
   double uct_c_;
