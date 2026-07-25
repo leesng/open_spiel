@@ -81,7 +81,8 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
   // update observation
   auto [t, c] = s->get_present();
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
-  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
+  bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
+  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
 
   current_player_ = c;
   undo_stack_.clear();
@@ -364,58 +365,18 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   auto [t, c] = s->get_present();
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
-  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
+  bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
+  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
 
   if (ms != match_status_t::PLAYING) {
-    if (is_first_real_selfplay_game_) std::cout << "check ms=" << ms << std::endl;
-    // for undo
-    undo_stack_.push_back(std::move(entry));
-    return;
-  }
-
-  // check out of range
-  auto it = std::max_element(operable_boards_.cbegin(), operable_boards_.cend(),
-      [](const auto& a, const auto& b) { return a.second.size() < b.second.size(); });
-  if (it->second.size() > kMaxMovesPerBoard ||
-      all_boards_.size() > kMaxRuntimeBoards ||
-      operable_boards_.size() > kMaxOperableBoards ||
-      boards_edges_.size() > kMaxRuntimeEdges ||
-      move_number_ + 1 >= kMaxGameLength) {
-    int wc = 0, bc = 0;
-    auto [l_min, l_max] = s->get_lines_range();
-    auto [active_min, active_max] = s->get_active_range();
-    if (l_min < active_min) {
-      ms = match_status_t::WHITE_WINS;
-    } else if (active_max < l_max) {
-      ms = match_status_t::BLACK_WINS;
-    } else {
-      for(int l = l_min; l <= l_max; l++) {
-        auto [tl, tc] = s->get_timeline_end(l);
-        if (tc) bc++;
-        else wc++;
-      }
-      if (wc > bc) ms = match_status_t::WHITE_WINS;
-      else if (wc < bc) ms = match_status_t::BLACK_WINS;
-      else ms = match_status_t::STALEMATE;
-    }
-    
-    if (is_first_real_selfplay_game_) 
-      std::cout << "max_board_mvs_cnt=" << it->second.size()
-        << ",all_boards=" << all_boards_.size()
-        << ",operable_boards=" << operable_boards_.size()
-        << ",boards_edges=" << boards_edges_.size()
-        << ",move_number_=" << move_number_ 
-        << ",l_min=" << l_min
-        << ",l_max=" << l_max 
-        << ",active_min=" << active_min
-        << ",active_max=" << active_max 
-        << ",wc=" << wc
-        << ",bc=" << bc 
-        << ",force ms=" << ms
-        << std::endl;
-	// for undo
-    undo_stack_.push_back(std::move(entry));
-    return;
+    if (is_first_real_selfplay_game_) std::cout
+	<< " all_boards=" << all_boards_.size()
+	<< ",operable_boards=" << operable_boards_.size()
+	<< ",boards_edges=" << boards_edges_.size()
+	<< ",move_number_=" << move_number_ 
+	<< ",force_end=" << force_end 
+	<< ",check ms=" << ms 
+	<< std::endl;
   }
 
   if (current_player_ != c) {
@@ -427,6 +388,7 @@ void FiveDChessState::DoApplyAction(Action action) {
 
   // for undo
   undo_stack_.push_back(std::move(entry));
+  return;
 }
 
 void FiveDChessState::UndoAction(Player player, Action action) {
@@ -458,7 +420,8 @@ void FiveDChessState::UndoAction(Player player, Action action) {
 #endif
 
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
-  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms);
+  bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
+  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
 
 #ifndef NDEBUG
   //match_status_t check_ms;
@@ -470,6 +433,7 @@ void FiveDChessState::UndoAction(Player player, Action action) {
   //SPIEL_CHECK_EQ(check_boards.size(), all_boards_.size());
   //SPIEL_CHECK_EQ(check_operable.size(), operable_boards_.size());
 #endif
+  return;
 }
 
 }  // namespace five_d_chess

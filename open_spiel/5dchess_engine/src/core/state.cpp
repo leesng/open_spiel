@@ -1166,7 +1166,7 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
     return operable_boards;
 }
 
-std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_moves_and_match_status(match_status_t &ms) {	
+std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_moves_and_match_status(match_status_t &ms, bool force_end) {	
 
     std::vector<std::pair<int,std::vector<uint64_t>>> operable_boards
                 = player ? m->get_operable_boards_moves<true>(!has_passed) : m->get_operable_boards_moves<false>(!has_passed);
@@ -1239,6 +1239,34 @@ std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_mov
 	// get match status
 	if (!operable_boards.empty()) {
 		ms = match_status_t::PLAYING;
+		if (force_end) {
+			int wc = 0, bc = 0;
+			auto [l_min, l_max] = this->get_lines_range();
+			auto [active_min, active_max] = this->get_active_range();
+			if (l_min < active_min) {
+			  ms = match_status_t::WHITE_WINS;
+			} else if (active_max < l_max) {
+			  ms = match_status_t::BLACK_WINS;
+			} else {
+			  for(int l = l_min; l <= l_max; l++) {
+				auto [tet, tec] = this->get_timeline_end(l);
+				if (tec) bc++;
+				else wc++;
+			  }
+			  if (wc > bc) ms = match_status_t::WHITE_WINS;
+			  else if (wc < bc) ms = match_status_t::BLACK_WINS;
+			  else ms = match_status_t::STALEMATE;
+			}
+			/*std::cout
+			<< " l_min=" << l_min
+			<< " l_max=" << l_max
+			<< " active_min=" << active_min
+			<< " active_max=" << active_max
+			<< " wc=" << wc
+			<< " bc=" << bc
+			<< " ms=" << ms
+			<< std::endl;*/
+		}
 	} else {
 		if (being_checked /*phantom().find_checks(!player).first().has_value()*/) {
 			ms = player ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;

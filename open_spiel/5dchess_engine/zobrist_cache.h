@@ -78,10 +78,12 @@ private:
 };
 
 // Thread-safe shared cache for game state results
+template<typename T>
 class SharedCache {
 public:
+
     static SharedCache& Get() noexcept {
-        static SharedCache cache;
+        static SharedCache<T> cache;
         return cache;
     }
 
@@ -90,15 +92,20 @@ public:
     SharedCache(SharedCache&&) = delete;
     SharedCache& operator=(SharedCache&&) = delete;
 
-    std::optional<int> Query(Hash128 h) const {
+    std::optional<T> Query(Hash128 h) const {
         std::shared_lock<std::shared_mutex> lock(mtx);
         auto it = mp.find(h);
-        return it != mp.end() ? std::optional(it->second) : std::nullopt;
+        return (it != mp.end()) ? std::optional<T>(it->second) : std::nullopt;
     }
 
-    void Save(Hash128 h, int res) {
+    void Upsert(Hash128 h, const T& value) {
         std::unique_lock<std::shared_mutex> lock(mtx);
-        mp[h] = res;
+        mp[h] = value;
+    }
+
+    void Upsert(Hash128 h, T&& value) {
+        std::unique_lock<std::shared_mutex> lock(mtx);
+        mp[h] = std::move(value);
     }
 
     void Clear() {
@@ -106,9 +113,15 @@ public:
         mp.clear();
     }
 
+    size_t Size() const {
+        std::shared_lock<std::shared_mutex> lock(mtx);
+        return mp.size();
+    }
+
 private:
     SharedCache() = default;
-    mutable std::unordered_map<Hash128, int, Hash128Hash> mp;
+
+    mutable std::unordered_map<Hash128, T, Hash128Hash> mp;
     mutable std::shared_mutex mtx;
 };
 
@@ -155,7 +168,7 @@ inline Hash128 CalcStateHash(const std::vector<std::pair<int, std::vector<uint64
 	}
 
 	int status = (int)s->get_match_status(move_list_to_string(history_moves_list_));
-	SharedCache::Get().Save(h, status);
+	SharedCache::Get().Upsert(h, status);
 	return status;
   };
 */

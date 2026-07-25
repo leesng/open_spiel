@@ -178,7 +178,7 @@ std::vector<std::pair<int, int>> game::get_current_boards_edges(std::optional<st
 std::vector<std::pair<int,std::vector<uint64_t>>> game::get_operable_boards_moves_and_match_status(match_status_t &ms)
 {
     state& s = now->first;
-	auto operable_boards = s.get_operable_boards_moves_and_match_status(ms);
+	auto operable_boards = s.get_operable_boards_moves_and_match_status(ms, false);
 /*
 	for (auto& outer_pair : operable_boards) {
 		std::cout << "[" << outer_pair.first << "]:" << std::endl;

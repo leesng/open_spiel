@@ -181,7 +181,7 @@ public:
 
 	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
 	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status_const(match_status_t &ms) const;
-	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms);
+	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms, bool force_end);
 	bool big_round_over() const;
 	bool big_round_over(bool &can_pass) const; 
 	
