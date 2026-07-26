@@ -99,6 +99,7 @@ public:
     template<bool SHOW_UMOVE=false>
     std::vector<boards_info_t> get_boards() const;
 	void get_one_board_and_edge(int u, int v, std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards, std::vector<std::pair<int,int>>& boards_edges) const;
+	std::vector<std::pair<int,std::vector<uint64_t>>> del_one_board_and_edge(int u, int v, std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards, std::vector<std::pair<int,int>>& boards_edges) const;
 	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
 	template <bool COLOR> std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves(bool allow_pass = false) const;
     

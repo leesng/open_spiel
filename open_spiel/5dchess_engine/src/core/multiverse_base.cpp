@@ -266,6 +266,29 @@ void multiverse::get_one_board_and_edge(int u, int v,
     }
 }
 
+std::vector<std::pair<int,std::vector<uint64_t>>> multiverse::del_one_board_and_edge(int u, int v, 
+	std::vector<std::pair<int,std::vector<uint64_t>>>& all_boards,
+	std::vector<std::pair<int,int>>& boards_edges) const
+{
+	std::vector<std::pair<int,std::vector<uint64_t>>> del_boards;
+	for (int i = (int)all_boards.size() - 1; i >= 0; --i) {
+		if (all_boards[i].first == EncodeBoardId(u,v)) {
+			del_boards.push_back(std::move(all_boards.back()));
+			all_boards.pop_back();
+			continue;
+		}
+		break;
+	}
+	for (int i = (int)boards_edges.size() - 1; i >= 0; --i) {
+		if (boards_edges[i].first == EncodeBoardId(u,v)) {
+			boards_edges.pop_back();
+			continue;
+		}
+		break;	
+	}
+	return del_boards;
+}
+
 std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>,
            std::vector<std::pair<int,int>>> multiverse::get_boards_and_edges() const
 {

@@ -180,6 +180,8 @@ public:
     std::string show_fen() const;
 
 	std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::pair<int,int>>> get_boards_and_edges() const;
+	int add_boards_and_edges(std::vector<std::pair<int,std::vector<uint64_t>>> &all_boards, std::vector<std::pair<int,int>> &boards_edges, std::vector<int> new_lines) const;
+	std::vector<std::pair<int,std::vector<uint64_t>>> del_boards_and_edges(std::vector<std::pair<int,std::vector<uint64_t>>> &all_boards, std::vector<std::pair<int,int>> &boards_edges, std::vector<int> new_lines) const;
 	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status_const(match_status_t &ms) const;
 	std::vector<std::pair<int,std::vector<uint64_t>>> get_operable_boards_moves_and_match_status(match_status_t &ms, bool force_end);
 	bool big_round_over() const;

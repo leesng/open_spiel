@@ -80,12 +80,16 @@ FiveDChessState::FiveDChessState(std::shared_ptr<const Game> game)
 
   // update observation
   auto [t, c] = s->get_present();
+  current_player_ = c;
   std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
+  current_hash_ = CalcStateHash(all_boards_, current_player_);
+  
   bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
   operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
-
-  current_player_ = c;
   undo_stack_.clear();
+
+  aaa.store(0);
+  bbb.store(0);
 }
 
 FiveDChessState::FiveDChessState(const FiveDChessState& other)
@@ -98,6 +102,7 @@ FiveDChessState::FiveDChessState(const FiveDChessState& other)
       operable_boards_(other.operable_boards_),
       boards_edges_(other.boards_edges_),
       undo_stack_(other.undo_stack_),
+	  current_hash_(other.current_hash_),
       is_first_real_selfplay_game_(false) {
 }
 	  
@@ -349,9 +354,6 @@ void FiveDChessState::DoApplyAction(Action action) {
   // ========== Backup 1 for undo state ==========
   UndoEntry entry;
   std::string moveStr(std::to_string(current_big_round_) + (current_player_ ? "b" : "w") + "." + fm.to_string());
-  if (is_first_real_selfplay_game_)
-    std::cout << "{" << std::this_thread::get_id() << "." << move_number_ << ":" << flags << pto << "}"
-              << moveStr << std::endl;
 
   // ========== Backup 2 for unapply move ==========
   entry.apply_new_lines = s->apply_move_and_return_new_boards(fm, pto);
@@ -364,9 +366,32 @@ void FiveDChessState::DoApplyAction(Action action) {
   }
 
   auto [t, c] = s->get_present();
-  std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
+  auto adds = s->add_boards_and_edges(all_boards_, boards_edges_, entry.apply_new_lines);
+  current_hash_ = AddBoardsToHash(current_hash_, all_boards_, adds);
+  if (current_player_ != c) {
+	current_hash_ = FlipPlayerInHash(current_hash_);
+    current_player_ = c;
+    if (!current_player_) {
+      current_big_round_++;
+    }
+  }
+  
+  if (is_first_real_selfplay_game_)
+    std::cout << "{" << std::this_thread::get_id() << "." << move_number_ << ":" << flags << pto
+    << " " << (aaa ? bbb * 100.f / aaa : 0) << "%" << "}" <<  moveStr << std::endl;
+  //if (is_first_real_selfplay_game_) std::cout << std::this_thread::get_id() << ".DoAction hash = " << current_hash_ << std::endl;
+
   bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
-  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
+  auto cache = SharedCache<HashEntry>::Get().Query(current_hash_);
+  aaa++;
+  if (cache) {
+    bbb++;
+    ms = cache->ms;
+    operable_boards_ = cache->obs;
+  } else {
+    operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
+    SharedCache<HashEntry>::Get().Upsert(current_hash_, {ms, operable_boards_, 0});
+  }
 
   if (ms != match_status_t::PLAYING) {
     if (is_first_real_selfplay_game_) std::cout
@@ -377,13 +402,6 @@ void FiveDChessState::DoApplyAction(Action action) {
 	<< ",force_end=" << force_end 
 	<< ",check ms=" << ms 
 	<< std::endl;
-  }
-
-  if (current_player_ != c) {
-    current_player_ = c;
-    if (!current_player_) {
-      current_big_round_++;
-    }
   }
 
   // for undo
@@ -399,6 +417,9 @@ void FiveDChessState::UndoAction(Player player, Action action) {
   // 1. reroll history and num (openspiel need it)
   history_.pop_back();
   --move_number_;
+  
+  auto dels = s->del_boards_and_edges(all_boards_, boards_edges_, entry.apply_new_lines);
+  current_hash_ = RemoveBoardsFromHash(current_hash_, dels, 0);
 
   // 2. revovery uplayer snapshot
   // 3. undo summit and apply
@@ -414,25 +435,24 @@ void FiveDChessState::UndoAction(Player player, Action action) {
 		  current_big_round_--;
 	  }
 	  current_player_ = c;
+	  current_hash_ = FlipPlayerInHash(current_hash_);
   }
 #ifndef NDEBUG
   SPIEL_CHECK_EQ(player, current_player_);
 #endif
 
-  std::tie(all_boards_, boards_edges_) = s->get_boards_and_edges();
+  //if (is_first_real_selfplay_game_) std::cout << std::this_thread::get_id() << ".Undo hash = " << current_hash_ << std::endl;
   bool force_end = (all_boards_.size() > kMaxRuntimeBoards || boards_edges_.size() > kMaxRuntimeEdges);
-  operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
-
-#ifndef NDEBUG
-  //match_status_t check_ms;
-  //auto [check_t, check_c] = s->get_present();
-  //auto [check_boards, check_edges] = s->get_boards_and_edges();
-  //auto check_operable = s->get_operable_boards_moves_and_match_status(check_ms);
-  //SPIEL_CHECK_EQ(static_cast<bool>(check_c), static_cast<bool>(current_player_));
-  //SPIEL_CHECK_EQ(check_ms, ms);
-  //SPIEL_CHECK_EQ(check_boards.size(), all_boards_.size());
-  //SPIEL_CHECK_EQ(check_operable.size(), operable_boards_.size());
-#endif
+  auto cache = SharedCache<HashEntry>::Get().Query(current_hash_);
+  aaa++;
+  if (cache) {
+	bbb++;
+    ms = cache->ms;
+    operable_boards_ = cache->obs;
+  } else {
+    operable_boards_ = s->get_operable_boards_moves_and_match_status(ms, force_end);
+    SharedCache<HashEntry>::Get().Upsert(current_hash_, {ms, operable_boards_, 0});
+  }
   return;
 }
 

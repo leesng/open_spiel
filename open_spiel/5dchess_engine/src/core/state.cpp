@@ -1096,6 +1096,32 @@ std::tuple<std::vector<std::pair<int,std::vector<uint64_t>>>, std::vector<std::p
 	return m->get_boards_and_edges();
 }
 
+int state::add_boards_and_edges(std::vector<std::pair<int,std::vector<uint64_t>>> &all_boards, std::vector<std::pair<int,int>> &boards_edges, std::vector<int> new_lines) const{
+
+	int start_index = (int)all_boards.size();
+	for (int i = 0; i <= (int)new_lines.size() - 1; ++i) {
+		auto l = new_lines[i];
+		auto [t, c] = get_timeline_end(l);
+		m->get_one_board_and_edge(l_to_u(l), tc_to_v(t, c), all_boards, boards_edges);
+	}
+	return start_index;
+}
+
+std::vector<std::pair<int,std::vector<uint64_t>>> state::del_boards_and_edges(std::vector<std::pair<int,std::vector<uint64_t>>> &all_boards, std::vector<std::pair<int,int>> &boards_edges, std::vector<int> new_lines) const{
+
+	std::vector<std::pair<int,std::vector<uint64_t>>> del_boards;
+	for (int i = (int)new_lines.size() - 1; i >= 0; --i) {
+		auto l = new_lines[i];
+		auto [t, c] = get_timeline_end(l);
+		auto bds = m->del_one_board_and_edge(l_to_u(l), tc_to_v(t, c), all_boards, boards_edges);
+		// assert(bds.size() == 1);
+		for (auto & x : bds) {
+			del_boards.push_back(std::move(x));
+		}
+	}
+	return del_boards;
+}
+
 std::vector<std::pair<int,std::vector<uint64_t>>> state::get_operable_boards_moves_and_match_status_const(match_status_t &ms) const {	
 
     std::vector<std::pair<int,std::vector<uint64_t>>> operable_boards

@@ -181,6 +181,13 @@ class FiveDChessState : public State {
 	std::vector<int> apply_new_lines;
   };
   std::vector<UndoEntry> undo_stack_;
+  
+  struct HashEntry {
+    ::match_status_t ms;
+    std::vector<std::pair<BoardId, std::vector<MoveId>>> obs;
+	Action ba;
+  };
+  absl::uint128 current_hash_;
 };
 
 // Game class definition for 5D Chess
